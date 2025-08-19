@@ -1,11 +1,10 @@
 {
   "name": "companion-drones-mjlfix",
-  "version": "2.0.13",
+  "version": "3.0.27",
   "title": "Companion Drones 2.0",
-  "author": "MrJakobLaich, kubiix, Klonan",
-  "contact": "",
+  "author": "Maoman, MrJakobLaich, kubiix, Klonan",
   "homepage": "",
-  "description": "Companion drones for you. 'Adds friends - now to Factorio 2.0' ... apparently I'm now maintaining this mod?",
+  "description": "Companion Drones: MAJOR UPDATE! See mod description.",
   "dependencies": [
     "base >= 2.0.0"
   ],

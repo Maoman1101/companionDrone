@@ -1,20 +1,19 @@
-local util                 = require("__core__/lualib/util")
-local attach_beam_graphics = require("data/beam_sprites")
+local util = require("__core__/lualib/util")
 
 local bot = util.copy(data.raw["construction-robot"]["construction-robot"])
 bot.name = "companion-construction-robot"
 bot.localised_name = "Companion construction laser bank. (DO NOT TOUCH)"
 bot.max_payload_size = 5
-bot.speed = 0.75
+bot.speed = 0.4
 bot.max_speed = 0.4
 bot.max_energy = "1000000MJ"
-bot.energy_per_tick = "10J"
+bot.energy_per_tick = "0J"
 bot.speed_multiplier_when_out_of_energy = 1
-bot.energy_per_move = "100J"
+bot.energy_per_move = "0J"
 bot.min_to_charge = 0
 bot.max_to_charge = 0
 bot.working_sound = nil
-bot.minable = {name = "fish", amount = 0, mining_time = 3}
+bot.minable = {name = "fish", amount = 0, mining_time = 1}
 bot.selection_box = {{-0.25,-0.25}, {0.25,0.25}}
 bot.cargo_centered = {0, -1}
 bot.selectable_in_game = false
@@ -69,8 +68,6 @@ local bot_item =
   flags = {"only-in-cursor"}
 }
 
-
-
 local equipment =
 {
   type = "roboport-equipment",
@@ -104,8 +101,8 @@ local equipment =
   charging_energy = "1000kW",
   spawn_minimum = "0W",
 
-  robot_limit = 1000,
-  construction_radius = 42,
+  robot_limit = 6,
+  construction_radius = 10,
   draw_construction_radius_visualization = false,
   spawn_and_station_height = 1,
   spawn_and_station_shadow_height_offset = 0,
@@ -165,6 +162,7 @@ local equipment_item =
   stack_size = 20
 }
 
+local attach_beam_graphics = require("data/beam_sprites")
 
 local build_beam = util.copy(data.raw["beam"]["electric-beam-no-sound"])
 build_beam.name = "companion-build-beam"
@@ -296,7 +294,7 @@ local drone =
   },
   --corpse = "spidertron-remnants",
   --dying_explosion = "spidertron-explosion",
-  energy_per_hit_point = 4,
+  energy_per_hit_point = 1,
   guns = {},
   inventory_size = 21,
   equipment_grid = "companion-equipment-grid",
@@ -312,7 +310,7 @@ local drone =
   {
     type = "burner",
     fuel_categories = {"chemical"},
-    effectivity = 0.25,
+    effectivity = 1,
     fuel_inventory_size = 3,
     smoke =
     {
@@ -320,7 +318,7 @@ local drone =
         name = "train-smoke",
         deviation = {0.3, 0.3},
         frequency = 100,
-        position = {-1, 0},
+        position = {0, 0},
         starting_frame = 0,
         starting_frame_deviation = 60,
         height = 2,
@@ -330,7 +328,7 @@ local drone =
       }
     }
   },
-  movement_energy_consumption = "100kW",
+  movement_energy_consumption = "20kW",
   automatic_weapon_cycling = true,
   chain_shooting_cooldown_modifier = 0.5,
   spider_engine =
@@ -424,23 +422,7 @@ local layers = drone.graphics_set.base_animation.layers
 for k, layer in pairs (layers) do
   layer.repeat_count = 8
 end
---[[
-table.insert(layers, 1,
-{ -- Added by Shockrift
-  filename = "__companion-drones__/10-jet-flame.png", -- todo: get sprite
-  priority = "medium",
-  blend_mode = "additive",
-  draw_as_glow = true,
-  width = 172,
-  height = 256,
-  frame_count = 8,
-  line_length = 8,
-  animation_speed = 0.5,
-  scale = 1.13/8,
-  shift = util.by_pixel(-0.5, 20),
-  direction_count = 1
-})
-]]
+
 local drone_item =
 {
   type = "item-with-entity-data",
@@ -487,17 +469,17 @@ local gun =
   {
     type = "beam",
     warmup = 20,
-    cooldown = 24,
-    cooldown_deviation = 0.5,
+    cooldown = 15,
+    cooldown_deviation = 0.1,
     range = 21,
     --source_direction_count = 64,
     --source_offset = {0, -3.423489 / 4},
-	damage_modifier = 1.0,
+    damage_modifier = 1,
     ammo_category = "laser",
     ammo_type =
     {
       category = "laser",
-      energy_consumption = "1kJ",
+      energy_consumption = "0.1kJ",
       action =
       {
         type = "direct",
@@ -575,8 +557,8 @@ local plasma_projectile =
         },
         {
           type = "damage",
-          damage = {amount = 5, type = "laser"}
-        }, 
+          damage = {amount = 20, type = "laser"}
+        },
       }
     }
   },
@@ -648,223 +630,6 @@ local shield_item =
   stack_size = 20
 }
 
-local companion_shield_mk0 = {
-    type = "energy-shield-equipment",
-    name = "companion-shield-mk0",
-    localised_name = {"item-name.companion-shield-mk0"},
-    sprite = {
-        filename = "__base__/graphics/equipment/energy-shield-equipment.png",
-        width = 128,
-        height = 128,
-        priority = "medium",
-        scale = 0.5
-    },
-    shape = {
-        width = 2,
-        height = 2,
-        type = "full"
-    },
-    max_shield_value = 30,
-    energy_source = {
-        type = "electric",
-        buffer_capacity = "25kJ",
-        input_flow_limit = "2kW",
-        usage_priority = "primary-input"
-    },
-    energy_per_shield = "2kJ",
-    categories = {"companion"}
-}
-
-local companion_shield_mk1 = util.table.deepcopy(companion_shield_mk0)
-companion_shield_mk1.name = "companion-shield-mk1"
-companion_shield_mk1.localised_name = {"item-name.companion-shield-mk1"}
-companion_shield_mk1.max_shield_value = 200
-companion_shield_mk1.energy_source.buffer_capacity = "150kJ"
-companion_shield_mk1.energy_source.input_flow_limit = "20kW"
-companion_shield_mk1.energy_per_shield = "10kJ"
-
-local companion_shield_mk2 = util.table.deepcopy(companion_shield_mk0)
-companion_shield_mk2.name = "companion-shield-mk2"
-companion_shield_mk2.localised_name = {"item-name.companion-shield-mk2"}
-companion_shield_mk2.max_shield_value = 500
-companion_shield_mk2.energy_source.buffer_capacity = "400kJ"
-companion_shield_mk2.energy_source.input_flow_limit = "50kW"
-companion_shield_mk2.energy_per_shield = "20kJ"
-
-local companion_shield_mk3 = util.table.deepcopy(companion_shield_mk0)
-companion_shield_mk3.name = "companion-shield-mk3"
-companion_shield_mk3.localised_name = {"item-name.companion-shield-mk3"}
-companion_shield_mk3.max_shield_value = 1200
-companion_shield_mk3.energy_source.buffer_capacity = "1MJ"
-companion_shield_mk3.energy_source.input_flow_limit = "120kW"
-companion_shield_mk3.energy_per_shield = "40kJ"
-
-local companion_shield_item_mk0 = {
-    type = "item",
-    name = "companion-shield-mk0",
-    localised_name = {"item-name.companion-shield-mk0"},
-    icons = {
-        {
-            icon = "__companion-drones-mjlfix__/drone-icon.png",
-            icon_size = 200
-        },
-        {
-            icon = "__base__/graphics/equipment/energy-shield-equipment.png",
-            icon_size = 64,
-            scale = 0.333,
-        }
-    },
-    place_as_equipment_result = "companion-shield-mk0",
-    subgroup = "companion",
-    order = "e[mk0]",
-    default_request_amount = 1,
-    stack_size = 20
-}
-
-local companion_shield_item_mk1 = util.table.deepcopy(companion_shield_item_mk0)
-companion_shield_item_mk1.name = "companion-shield-mk1"
-companion_shield_item_mk1.localised_name = {"item-name.companion-shield-mk1"}
-companion_shield_item_mk1.place_as_equipment_result = "companion-shield-mk1"
-companion_shield_item_mk1.order = "e[mk1]"
-
-local companion_shield_item_mk2 = util.table.deepcopy(companion_shield_item_mk0)
-companion_shield_item_mk2.name = "companion-shield-mk2"
-companion_shield_item_mk2.localised_name = {"item-name.companion-shield-mk2"}
-companion_shield_item_mk2.place_as_equipment_result = "companion-shield-mk2"
-companion_shield_item_mk2.order = "e[mk2]"
-
-local companion_shield_item_mk3 = util.table.deepcopy(companion_shield_item_mk0)
-companion_shield_item_mk3.name = "companion-shield-mk3"
-companion_shield_item_mk3.localised_name = {"item-name.companion-shield-mk3"}
-companion_shield_item_mk3.place_as_equipment_result = "companion-shield-mk3"
-companion_shield_item_mk3.order = "e[mk3]"
-
-local companion_roboport_mk0 = {
-    type = "roboport-equipment",
-    name = "companion-roboport-mk0",
-    localised_name = {"item-name.companion-roboport-mk0"},
-    sprite = {
-        filename = "__base__/graphics/equipment/personal-roboport-equipment.png",
-        width = 128,
-        height = 128,
-        priority = "medium",
-        scale = 0.5
-    },
-    shape = {
-        width = 2,
-        height = 2,
-        type = "full"
-    },
-    energy_source = {
-        type = "electric",
-        buffer_capacity = "5MJ",
-        input_flow_limit = "50kW",
-        usage_priority = "secondary-input",
-    },
-    charging_energy = "10kW",
-    spawn_minimum = "0W",
-    robot_limit = 1,             -- Only 1 bot
-    construction_radius = 3,     -- Pitiful range
-    draw_construction_radius_visualization = false,
-    spawn_and_station_height = 1,
-    spawn_and_station_shadow_height_offset = 0,
-    charge_approach_distance = 2.6,
-    robots_shrink_when_entering_and_exiting = true,
-    recharging_animation = {
-        filename = "__base__/graphics/entity/roboport/roboport-recharging.png",
-        priority = "high",
-        width = 37,
-        height = 35,
-        frame_count = 16,
-        scale = 1.5,
-        animation_speed = 0.5
-    },
-    recharging_light = {intensity = 0.2, size = 2},
-    stationing_offset = {0, -2},
-    charging_station_shift = {0, -2},
-    charging_station_count = 1,
-    charging_distance = 0,
-    charging_threshold_distance = 0,
-    robot_vertical_acceleration = 5,
-    categories = {"companion"}
-}
-
-local companion_roboport_mk1 = util.table.deepcopy(companion_roboport_mk0)
-companion_roboport_mk1.name = "companion-roboport-mk1"
-companion_roboport_mk1.localised_name = {"item-name.companion-roboport-mk1"}
-companion_roboport_mk1.energy_source.buffer_capacity = "20MJ"
-companion_roboport_mk1.energy_source.input_flow_limit = "200kW"
-companion_roboport_mk1.charging_energy = "80kW"
-companion_roboport_mk1.robot_limit = 5
-companion_roboport_mk1.construction_radius = 5
-companion_roboport_mk1.charging_station_count = 1
-companion_roboport_mk1.recharging_light = {intensity = 0.3, size = 3}
-companion_roboport_mk1.robot_vertical_acceleration = 7
-
-local companion_roboport_mk2 = util.table.deepcopy(companion_roboport_mk0)
-companion_roboport_mk2.name = "companion-roboport-mk2"
-companion_roboport_mk2.localised_name = {"item-name.companion-roboport-mk2"}
-companion_roboport_mk2.energy_source.buffer_capacity = "50MJ"
-companion_roboport_mk2.energy_source.input_flow_limit = "500kW"
-companion_roboport_mk2.charging_energy = "250kW"
-companion_roboport_mk2.robot_limit = 16
-companion_roboport_mk2.construction_radius = 8
-companion_roboport_mk2.charging_station_count = 2
-companion_roboport_mk2.recharging_light = {intensity = 0.4, size = 4}
-companion_roboport_mk2.robot_vertical_acceleration = 10
-
-local companion_roboport_mk3 = util.table.deepcopy(companion_roboport_mk0)
-companion_roboport_mk3.name = "companion-roboport-mk3"
-companion_roboport_mk3.localised_name = {"item-name.companion-roboport-mk3"}
-companion_roboport_mk3.energy_source.buffer_capacity = "120MJ"
-companion_roboport_mk3.energy_source.input_flow_limit = "1MW"
-companion_roboport_mk3.charging_energy = "600kW"
-companion_roboport_mk3.robot_limit = 69
-companion_roboport_mk3.construction_radius = 12
-companion_roboport_mk3.charging_station_count = 4
-companion_roboport_mk3.recharging_light = {intensity = 0.6, size = 5}
-companion_roboport_mk3.robot_vertical_acceleration = 15
-
-local companion_roboport_item_mk0 = {
-    type = "item",
-    name = "companion-roboport-mk0",
-    localised_name = {"item-name.companion-roboport-mk0"},
-    icons = {
-        {
-            icon = "__companion-drones-mjlfix__/drone-icon.png",
-            icon_size = 200
-        },
-        {
-            icon = "__base__/graphics/equipment/personal-roboport-equipment.png",
-            icon_size = 64,
-            scale = 0.333,
-        }
-    },
-    place_as_equipment_result = "companion-roboport-mk0",
-    subgroup = "companion",
-    order = "f[mk0]",
-    default_request_amount = 1,
-    stack_size = 20
-}
-
-local companion_roboport_item_mk1 = util.table.deepcopy(companion_roboport_item_mk0)
-companion_roboport_item_mk1.name = "companion-roboport-mk1"
-companion_roboport_item_mk1.localised_name = {"item-name.companion-roboport-mk1"}
-companion_roboport_item_mk1.place_as_equipment_result = "companion-roboport-mk1"
-companion_roboport_item_mk1.order = "f[mk1]"
-
-local companion_roboport_item_mk2 = util.table.deepcopy(companion_roboport_item_mk0)
-companion_roboport_item_mk2.name = "companion-roboport-mk2"
-companion_roboport_item_mk2.localised_name = {"item-name.companion-roboport-mk2"}
-companion_roboport_item_mk2.place_as_equipment_result = "companion-roboport-mk2"
-companion_roboport_item_mk2.order = "f[mk2]"
-
-local companion_roboport_item_mk3 = util.table.deepcopy(companion_roboport_item_mk0)
-companion_roboport_item_mk3.name = "companion-roboport-mk3"
-companion_roboport_item_mk3.localised_name = {"item-name.companion-roboport-mk3"}
-companion_roboport_item_mk3.place_as_equipment_result = "companion-roboport-mk3"
-companion_roboport_item_mk3.order = "f[mk3]"
-
 local battery =
 {
   type = "battery-equipment",
@@ -886,7 +651,7 @@ local battery =
   energy_source =
   {
     type = "electric",
-    buffer_capacity = "20000MJ",
+    buffer_capacity = "200000MJ",
     usage_priority = "tertiary"
   },
   categories = {"companion"}
@@ -971,14 +736,14 @@ local recipes =
     type = "recipe",
     name = "companion",
     enabled = true,
-    energy_required = 120,
+    energy_required = 15,
     ingredients =
     {
-      {type="item", name="processing-unit", amount=100},
-      {type="item", name="low-density-structure", amount=50},
-      {type="item", name="engine-unit", amount=50},
-      {type="item", name="flying-robot-frame", amount=4},
-      {type="item", name="spidertron", amount=1}
+      {type="item", name="electronic-circuit", amount=100},
+      {type="item", name="iron-gear-wheel", amount=50},
+      {type="item", name="iron-plate", amount=50},
+      {type="item", name="copper-cable", amount=50},
+      {type="item", name="raw-fish", amount=1}
     },
     results =
     {
@@ -989,12 +754,11 @@ local recipes =
     type = "recipe",
     name = "companion-reactor-equipment",
     enabled = true,
-    energy_required = 60,
+    energy_required = 10,
     ingredients =
     {
-      {type="item", name="processing-unit", amount=100},
-	  {type="item", name="steel-plate", amount=10},
-      {type="item", name="uranium-fuel-cell", amount=1}
+      {type="item", name="electronic-circuit", amount=100},
+      {type="item", name="iron-gear-wheel", amount=50}
     },
     results =
     {
@@ -1005,11 +769,11 @@ local recipes =
     type = "recipe",
     name = "companion-shield-equipment",
     enabled = true,
-    energy_required = 30,
+    energy_required = 10,
     ingredients =
     {
-      {type="item", name="energy-shield-equipment", amount=10},
-      {type="item", name="processing-unit", amount=10}
+      {type="item", name="iron-gear-wheel", amount=20},
+      {type="item", name="copper-cable", amount=20}
     },
     results =
     {
@@ -1020,12 +784,11 @@ local recipes =
     type = "recipe",
     name = "companion-roboport-equipment",
     enabled = true,
-    energy_required = 30,
+    energy_required = 10,
     ingredients =
     {
-      {type="item", name="processing-unit", amount=50},
-      {type="item", name="personal-roboport-equipment", amount=4},
-      {type="item", name="plastic-bar", amount=20}
+      {type="item", name="iron-plate", amount=20},
+      {type="item", name="iron-stick", amount=20}
     },
     results =
     {
@@ -1036,12 +799,11 @@ local recipes =
     type = "recipe",
     name = "companion-defense-equipment",
     enabled = true,
-    energy_required = 30,
+    energy_required = 10,
     ingredients =
     {
-      {type="item", name="processing-unit", amount=15},
-      {type="item", name="low-density-structure", amount=10},
-      {type="item", name="personal-laser-defense-equipment", amount=4}
+      {type="item", name="iron-gear-wheel", amount=15},
+      {type="item", name="copper-cable", amount=10}
     },
     results =
     {
@@ -1161,48 +923,6 @@ data:extend
   category,
   speed_sticker,
   attack_shortcut,
-  construct_shortcut, 
-  companion_shield_mk0,
-  companion_shield_mk1,
-  companion_shield_mk2,
-  companion_shield_mk3,
-  companion_roboport_mk0,
-  companion_roboport_mk1,
-  companion_roboport_mk2,
-  companion_roboport_mk3,
-  companion_shield_item_mk0,
-  companion_shield_item_mk1,
-  companion_shield_item_mk2,
-  companion_shield_item_mk3,
-  companion_roboport_item_mk0,
-  companion_roboport_item_mk1,
-  companion_roboport_item_mk2,
-  companion_roboport_item_mk3
-}
+  construct_shortcut
 
-data:extend{ -- Keybinds to toggle construction or attack mode
-    {
-        type = "custom-input",
-        name = "companion-construction-hotkey",
-        key_sequence = "",
-        consuming = "none",
-        order = "a[companion]-a[construction]",
-        localised_description = {"commands.companion-construction-hotkey"}
-    },
-    {
-        type = "custom-input",
-        name = "companion-attack-hotkey",
-        key_sequence = "",
-        consuming = "none",
-        order = "a[companion]-b[attack]",
-        localised_description = {"commands.companion-attack-hotkey"}
-    },
-    {
-        type = "custom-input",
-        name = "companion-force-search",
-        key_sequence = "",
-        consuming = "none",
-        order = "a[companion]-c[force-search]",
-        localised_description = {"commands.companion-force-search"}
-    }
 }

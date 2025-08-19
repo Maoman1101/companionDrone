@@ -1,33 +1,125 @@
 local util = require("util")
-local hard_mode = settings.startup["set_hard_mode"].value
-local companion_update_interval = settings.startup["set_update_interval"].value
+local challenge_mode = settings.startup["set-challenge-mode"].value
+storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
 local follow_range = 12
 local sticker_life = 100
 if not storage then storage = storage or {} end
-storage.base_speed                   = 0.3
-storage.build_speed                  = 0.5
-storage.attack_count                 = 3
-storage.max_distance                 = 100
-storage.scripted_robot_limit         = 2
-storage.scripted_construction_radius = 10 -- default values
+storage.companion_speed_factor = storage.companion_speed_factor or 1.0
+storage.player_speed_factor = storage.player_speed_factor or {} 
+local lib = {}
 
-local function get_companion_stats(player)
-    local techs = player.force.technologies
-    if not hard_mode then
-        return 0.30, 0.50, 10, 125, 20, 100 --base speed, build speed, number of attack particles, max distance, robot limit, construction radius (same order as defaults above)
-    end
-    if techs["space-science-pack"].researched then
-        return 0.50, 0.50, 20, 125, 20, 100
-    elseif techs["processing-unit"].researched then
-        return 0.30, 0.30, 10,  69,  6,  55
-    elseif techs["advanced-circuit"].researched then
-        return 0.20, 0.20,  4,  37,  3,  30
-    else
-        return 0.10, 0.10,  1,  10,  1,  10
+--------------------------- Challenge Mode Stat Control ---------------------------
+
+if challenge_mode then 
+    storage.base_speed                   = 8
+    storage.attack_count                 = 1
+    storage.max_distance                 = 12
+    storage.max_companions               = 1 -- shitty values to start with in challenge mode
+else
+    storage.base_speed                   = 0.5
+    storage.attack_count                 = 4
+    storage.max_distance                 = 28
+    storage.max_companions               = 2 -- moderately good (but not best) values for non challenge mode players
+end
+
+local function ensure_companion_upgrades()
+    if not storage then storage = {} end
+    if not storage.companion_upgrades then
+        storage.companion_upgrades = {
+            ["electronics"]             = {{stat="base_speed",     value=5,    phrase="I can move a little easier now."}},
+            ["automobilism"]            = {{stat="base_speed",     value=2,    phrase="Engine boost activated."}},
+            ["robotics"]                = {{stat="base_speed",     value=0.5,  phrase="Now I can fly like those robots!"}},
+            ["rocket-fuel"]             = {{stat="base_speed",     value=0.2,  phrase="Rocket fuel: max speed!"}},
+            
+            ["military-2"]              = {{stat="attack_count",   value=1.5,  phrase="Upgraded weaponry."}},
+            ["laser-turret"]            = {{stat="attack_count",   value=2,    phrase="Laser system enhanced."}},
+            ["stronger-explosives-2"]   = {{stat="attack_count",   value=3,    phrase="Explosive weapons powered up."}},
+            ["energy-weapons-damage-3"] = {{stat="attack_count",   value=5,    phrase="Energy weapons at max."}},
+            
+            ["logistics"]               = {{stat="max_distance",   value=16,   phrase="This will let me plan ahead better."}},
+            ["optics"]                  = {{stat="max_distance",   value=24,   phrase="I can see more clearly now."}},
+            ["radar"]                   = {{stat="max_distance",   value=32,   phrase="Radar has extended my range to max."}},
+            
+            ["processing-unit"]         = {{stat="max_companions", value=2,    phrase="Your suit can handle a friend now!"}},
+            ["power-armor-mk2"]         = {{stat="max_companions", value=10,   phrase="Your suit's fully upgraded: time to roll out the squad."}},
+
+            -- SHIELD UPGRADES
+            ["energy-shield-equipment"]   = {{
+                stat="companion-shield-mk0", 
+                value="companion-shield-mk1", 
+                phrase="Shield partially repaired."
+            }},
+            ["energy-shield-mk2-equipment"]= {{
+                stat="companion-shield-mk1", 
+                value="companion-shield-mk2", 
+                phrase="Additional shields online."
+            }},
+            ["fusion-reactor-equipment"]  = {{
+                stat="companion-shield-mk2", 
+                value="companion-shield-mk3", 
+                phrase="Shields fully operational."
+            }},
+
+            -- ROBO PORT UPGRADES
+            ["construction-robotics"]     = {{
+                stat="companion-roboport-mk0", 
+                value="companion-roboport-mk1", 
+                phrase="Roboport partially repaired."
+            }},
+            ["logistic-robotics"]         = {{
+                stat="companion-roboport-mk1", 
+                value="companion-roboport-mk2", 
+                phrase="Roboport upgrade online."
+            }},
+            ["utility-science-pack"]      = {{
+                stat="companion-roboport-mk2", 
+                value="companion-roboport-mk3", 
+                phrase="Roboport fully operational."
+            }},
+        }
     end
 end
 
-	
+local stat_tables = {
+    base_speed    = storage.base_speed,
+    damage        = storage.attack_count,
+    max_distance  = storage.max_distance,
+    number_drones = storage.max_companions,
+}
+-- this list and this function are so that each stat can be referenced dynamically (it avoids a gigantic if-then chain)
+local function get_stats_for_tech(tech)
+    local found = {}
+    for stat, table in pairs(stat_tables) do
+        if table[tech] then
+            found[stat] = table[tech]
+        end
+    end
+    return found
+end
+
+--------------------------- Initialization ---------------------------
+
+local function bind_storage()
+    if not storage.companion then
+        storage.companion = script_data
+    else
+        script_data = storage.companion
+    end
+end
+
+lib.on_init = function()
+    storage.companion = storage.companion or script_data
+    storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
+    local force = game.forces.player
+    if force.max_failed_attempts_per_tick_per_construction_queue == 1 then
+        force.max_failed_attempts_per_tick_per_construction_queue = 4
+    end
+    if force.max_successful_attempts_per_tick_per_construction_queue == 3 then
+        force.max_successful_attempts_per_tick_per_construction_queue = 8
+    end
+    bind_storage()
+end
+
 local script_data =
 {
     companions = {},
@@ -72,10 +164,26 @@ local get_fuel_items = function(player)
     return fuel_items
 end
 
-local set_companion_stats = function(player)
-	storage.base_speed,	storage.build_speed, storage.attack_count, storage.max_distance, storage.scripted_robot_limit, storage.scripted_construction_radius = get_companion_stats(player)
-	-- must all be on one line (I think)
-	return
+local function set_companion_stats(player)
+    ensure_companion_upgrades()
+    local force = player.force
+    local techs = force.technologies
+
+    local best_values = {}
+
+    for tech, upgrades in pairs(storage.companion_upgrades) do
+        if techs[tech] and techs[tech].researched then
+            local upgrade = upgrades[1]
+            local stat, value = upgrade.stat, upgrade.value
+            if not best_values[stat] or value > best_values[stat] then
+                best_values[stat] = value
+            end
+        end
+    end
+    storage.base_speed    = best_values.base_speed or storage.base_speed
+    storage.damage        = best_values.damage or storage.damage
+    storage.max_distance  = best_values.max_distance or storage.max_distance
+    storage.number_drones = best_values.number_drones or storage.number_drones
 end
 
 local get_companion = function(unit_number)
@@ -101,12 +209,12 @@ local get_secret_surface = function()
     return surface
 end
 
-
 local get_speed_boost = function(burner)
-    local burning = burner.currently_burning
-    if not burning then return 1 end
-    return burning.name.fuel_top_speed_multiplier
+  local burning = burner.currently_burning
+  if not burning then return 1 end
+  return burning.name.fuel_top_speed_multiplier * storage.base_speed
 end
+
 
 local rotate_vector = function(vector,    orientation)
     local x = vector[1] or vector.x
@@ -120,7 +228,7 @@ local rotate_vector = function(vector,    orientation)
 end
 
 local get_player_speed = function(player, boost)
-    local boost = boost or 1.0
+    local boost = boost or 1.0 
     if player.vehicle then
         return math.abs(player.vehicle.speed) * boost
     end
@@ -132,6 +240,72 @@ local get_player_speed = function(player, boost)
     return 0.3
 
 end
+
+local Companion = {}
+Companion.metatable = {__index = Companion}
+
+Companion.new = function(entity, player)
+    local player_data = script_data.player_data[player.index]
+    if not player_data then
+        player_data = {
+            companions = {},
+            last_job_search_offset = 0,
+            last_attack_search_offset = 0
+        }
+        script_data.player_data[player.index] = player_data
+        player.set_shortcut_available("companion-attack-toggle", true)
+        player.set_shortcut_available("companion-construction-toggle", true)
+    end
+
+    local count = 0
+    for _ in pairs(player_data.companions) do count = count + 1 end
+    if count >= storage.max_companions then
+        if count == 1 then
+			player.print("Your in-suit controller cannot handle more than 1 bot for now.")
+		elseif count == 10 then
+			player.print("Your in-suit controller cannot handle more than 10 bots at a time.")
+		else
+			player.print("Your in-suit controller cannot handle more than " .. storage.max_companions .. "bots for now.")
+		end
+        if entity and entity.valid then
+			local inserted = player.insert{name = entity.name, count = 1}
+			if inserted == 0 then
+				-- If player inventory is full, just drop it on the ground
+                -- Doesn't work lol
+				entity.surface.spill_item_stack(entity.position, {name = entity.name, count = 1}, true, player.force, false)
+			end
+			entity.destroy()
+		end
+        return
+    end
+
+    player.request_translation({"idle-line.0"})
+    player_data.companions[entity.unit_number] = true
+
+    local companion = {
+        entity = entity,
+        player = player,
+        unit_number = entity.unit_number,
+        robots = {},
+        flagged_for_equipment_changed = true,
+        last_attack_tick = 0,
+        job_done_pending = false,
+        speed = 0,
+        last_idle_line_tick = 0,
+        next_forced_idle_tick = 18000,
+		last_robot_count = 0
+    }
+
+    set_companion_stats(player)
+    setmetatable(companion, Companion.metatable)
+    script_data.companions[entity.unit_number] = companion
+    script.register_on_object_destroyed(entity)
+
+    companion:try_to_refuel()
+    companion:set_active()
+end
+
+--------------------------- Utilities ---------------------------
 
 local adjust_follow_behavior = function(player)
     local player_data = script_data.player_data[player.index]
@@ -178,64 +352,31 @@ local adjust_follow_behavior = function(player)
         follow_offset.x = follow_offset.x + shift.x
         follow_offset.y = follow_offset.y + shift.y
         local target = companion.entity.follow_target
-        if not (target and target.valid) then
+        --[[if not (target and target.valid) then
+            if player.character then
+                companion.entity.follow_target = player.character
+            else
+                companion.entity.autopilot_destination = {position.x + follow_offset.x, position.y + follow_offset.y}
+            end
+        end]]
+        if companion:is_busy() then
+            -- Job/combat in progress: let autopilot steer (robot centroid, job dest).
+            -- Prevent follow from overriding movement.
+            if target then companion.entity.follow_target = nil end
+        elseif not (target and target.valid) then
             if player.character then
                 companion.entity.follow_target = player.character
             else
                 companion.entity.autopilot_destination = {position.x + follow_offset.x, position.y + follow_offset.y}
             end
         end
-        -- idiotic solution but if it works ... is it really idiotic?
+        -- if it's stupid but it works...
         if follow_offset and follow_offset.x and follow_offset.y and follow_offset.x <= 10000 and follow_offset.y <= 10000 then
             companion.entity.follow_offset = follow_offset
         end
         companion:set_speed(speed + companion:get_distance_boost(companion.entity.autopilot_destination))
         companion:try_to_refuel()
     end
-end
-
-local Companion = {}
-Companion.metatable = {__index = Companion}
-
-Companion.new = function(entity, player)
-	
-    local player_data = script_data.player_data[player.index]
-    if not player_data then
-        player_data =
-        {
-            companions = {},
-            last_job_search_offset = 0,
-            last_attack_search_offset = 0
-        }
-        script_data.player_data[player.index] = player_data
-        player.set_shortcut_available("companion-attack-toggle", true)
-        player.set_shortcut_available("companion-construction-toggle", true)
-    end
-	player.request_translation({"idle-line.0"})
-    player_data.companions[entity.unit_number] = true
-
-    local companion =
-    {
-        entity = entity,
-        player = player,
-        unit_number = entity.unit_number,
-        robots = {},
-        flagged_for_equipment_changed = true,
-        last_attack_tick = 0,
-		job_done_pending = false,
-        speed = 0,
-		last_idle_line_tick = 0,
-		next_forced_idle_tick = 18000
-    }
-
-	set_companion_stats(player)
-    setmetatable(companion, Companion.metatable)
-    script_data.companions[entity.unit_number] = companion
-    script.register_on_object_destroyed(entity)
-
-    companion:try_to_refuel()
-    companion:set_active()
-
 end
 
 function Companion:can_spawn_robot()
@@ -268,7 +409,7 @@ end
 function Companion:set_active()
     self:set_robot_stack()
     self.flagged_for_equipment_changed = true
-    local mod = self.unit_number % companion_update_interval
+    local mod = self.unit_number % storage.companion_update_interval
     local list = script_data.active_companions[mod]
     if not list then
         list = {}
@@ -276,17 +417,26 @@ function Companion:set_active()
     end
     list[self.unit_number] = true
     self.active = true
-	if not storage.build_speed then storage.build_speed = 0.5 end
-    self:set_speed(storage.build_speed * get_speed_boost(self.entity.burner))
+    self:set_speed((storage.base_speed * 1.2) * get_speed_boost(self.entity.burner))
     adjust_follow_behavior(self.player)
 end
 
 function Companion:clear_active()
     if not self.active then return end
-    local mod = self.unit_number % companion_update_interval
+    if not self.out_of_energy then
+        local pending_job_line = self.job_done_tick and not self.job_done_announced
+        if pending_job_line and game.tick - self.job_done_tick < 10 then
+            if math.random(1, 20) > 15 then
+                self:say_random("search-for-nearby-work-line")
+            end
+            self.job_done_announced = true
+            self.job_done_tick = nil
+        end
+    end
+    local mod = self.unit_number % storage.companion_update_interval
     local list = script_data.active_companions[mod]
     if not list then
-        error("companion 281")
+        error("companion 421")
         return
     end
     list[self.unit_number] = nil
@@ -296,7 +446,12 @@ function Companion:clear_active()
     self.active = false
     self:clear_robots()
     adjust_follow_behavior(self.player)
-	return
+    self.next_idle_line_tick = nil
+    self.test_idle_tick = nil
+    self.test_idle_fired = nil
+    self.job_done_tick = nil
+   
+    return
 end
 
 function Companion:clear_speed_sticker()
@@ -331,14 +486,13 @@ function Companion:set_speed(speed)
     if speed == self.speed then return end
     self.speed = speed
     --self:say(speed)
-	if not storage.base_speed then storage.base_speed = 0.3 end
-        local ratio = speed/(storage.base_speed * get_speed_boost(self.entity.burner))
+	if not storage.base_speed then storage.base_speed = 10 end
+    local ratio = speed/(storage.base_speed * get_speed_boost(self.entity.burner))
     --self:say(ratio)
     if ratio <= 1 then
-        self:clear_speed_sticker()
+        ratio = 1
     else
         local sticker = self:get_speed_sticker()
-        sticker.time_to_live = 1 + ((sticker_life/10) * ratio)
     end
     --game.print(self.speed.." - "..self.entity.speed)
 end
@@ -373,16 +527,21 @@ function Companion:check_equipment()
     -- Check for roboport equipment first
     self.can_construct = false
     for k, equipment in pairs (grid.equipment) do
-        if equipment.name == "companion-roboport-equipment" then
-            self.can_construct = true
-            break
-        end
+        if equipment.type == "roboport-equipment" then
+			if equipment.name:find("^companion%-roboport") then
+				self.can_construct = true
+				break
+			elseif equipment.name:find("^personal%-roboport") then
+				self:say("I can't use this, this roboport is for you!")
+				break
+			end
+		end
     end
 
     -- Only set robot stack if we have a roboport
     if self.can_construct then
         local network = self.entity.logistic_network
-        local max_robots = (network and network.robot_limit) or 0
+        local max_robots = (network and network.robot_limit) or 100
         if max_robots > 0 then
             self:set_robot_stack()
         else
@@ -423,7 +582,7 @@ end
 
 function Companion:clear_robots()
     for k, robot in pairs (self.robots) do
-		local r = robot.entity or robot  -- handle both table/legacy cases
+		local r = robot.entity or robot
 		if r and r.valid then
 			r.mine{
 				inventory = self:get_inventory(),
@@ -440,34 +599,59 @@ function Companion:clear_robots()
 end
 
 function Companion:move_to_robot_average()
-    --if self.moving_to_destination then return end
-    if not next(self.robots) then return end
+    if not next(self.robots) then return false end
 
     local position = {x = 0, y = 0}
-    local our_position = self.entity.position
     local count = 0
-    for k, robot in pairs (self.robots) do
-		local r = robot.entity or robot
-		if r and r.valid then
-			local robot_position = r.position
-			position.x = position.x + robot_position.x
-			position.y = position.y + robot_position.y
-			count = count + 1
-		else
-			self.robots[k] = nil
-		end
+    for k, robot in pairs(self.robots) do
+        local r = robot.entity or robot
+        if r and r.valid then
+            local p = r.position
+            position.x = position.x + p.x
+            position.y = position.y + p.y
+            count = count + 1
+        else
+            self.robots[k] = nil
+        end
     end
+
     if count == 0 then
-        return
+        self.entity.autopilot_destination = nil
+        self.last_robot_count = 0
+        return false
     end
-    position.x = ((position.x / count))-- + our_position.x) / 2
-    position.y = ((position.y / count))-- + our_position.y) / 2
+
+    position.x = position.x / count
+    position.y = position.y / count
+
+    -- verify sane values
+    if position.x ~= position.x or position.y ~= position.y then return false end
+    if position.x == math.huge or position.x == -math.huge then return false end
+    if position.y == math.huge or position.y == -math.huge then return false end
+
     self.entity.autopilot_destination = position
+    
+    if not self.last_robot_count then self.last_robot_count = 0 end
+    if self.last_robot_count > count
+       and self.can_construct
+       and self:player_wants_construction()
+       and self.entity.surface == self.player.physical_surface
+       and not self.out_of_energy then
+        self:search_for_nearby_work()
+    end
+    self.last_robot_count = count
+
+    if count == 0 then
+        self.entity.autopilot_destination = nil
+        self.moving_to_destination = nil
+        self.last_robot_count = 0
+        return false
+    end
+
     return true
 end
 
 function Companion:try_to_refuel()
-
     if not self:get_fuel_inventory().is_empty() or self.entity.energy > 0 then return end
 	self:say("Refueling...")
     if self:distance(self.player.physical_position) <= follow_range then
@@ -483,15 +667,16 @@ end
 function Companion:update_state_flags()
     self.out_of_energy = self:try_to_refuel()
     self.is_in_combat = (game.tick - self.last_attack_tick) < 60
-    self.is_on_low_health = self.entity.get_health_ratio() < 0.5
-    self.is_busy_for_construction = self.is_in_combat or self:move_to_robot_average() or self.moving_to_destination
+    self.is_on_low_health = self.entity.get_health_ratio() < 0.7
+    self.is_busy_for_construction = not not (self.is_in_combat or self:move_to_robot_average() or self.moving_to_destination)
+    -- "not not" coerces it into a strict true/false result, never just truthy or falsey 
     self.is_getting_full = self:get_inventory()[16].valid_for_read
 end
 
 function Companion:search_for_nearby_work()
     if not self:player_wants_construction() or not self.can_construct then return end
     if self.entity.surface ~= self.player.physical_surface then return end
-	local radius = storage.scripted_construction_radius or 10
+	local radius = storage.max_distance
 	local origin = self.entity.position
 	local area = {{origin.x - radius, origin.y - radius}, {origin.x + radius, origin.y + radius}}
 	self:try_to_find_work(area)
@@ -508,116 +693,19 @@ function Companion:search_for_nearby_targets()
     self:try_to_find_targets(area)
 end
 
+function Companion:is_idle()
+    -- is the companion currently working or fighting?
+    return not self.is_in_combat and not self.is_busy_for_construction
+end
+
 function Companion:is_busy()
+    -- is the companion doing ANYthing at all?
     return self.is_in_combat or self.is_busy_for_construction or self.moving_to_destination
 end
 
-function Companion:debug_report_state(prefix)
-    local msg = string.format(
-        "[%s] tick=%d unit=%s | wants=%s can_construct=%s surface_ok=%s cell=%s is_busy=%s robots=%d pos=(%.1f,%.1f) actv=%s",
-        prefix or "",
-        game.tick,
-        tostring(self.unit_number),
-        tostring(self:player_wants_construction()),
-        tostring(self.can_construct),
-        tostring(self.entity.surface == self.player.physical_surface),
-        tostring(self.entity.logistic_cell ~= nil),
-        tostring(self:is_busy()),
-        table_size(self.robots or {}),
-        self.entity.position.x, self.entity.position.y,
-        tostring(self.active)
-    )
-    -- Option 1: print to game log for easy access in script-output.log
-    log(msg)
-    -- Option 2: optionally also print to player console (warning: spammy!)
-    self.player.print(msg)
-end
-
-commands.add_command("debug_companion", "Debug companion state", function(cmd)
-    local player = game.get_player(cmd.player_index)
-    if not player then return end
-    local player_data = script_data.player_data[player.index]
-    if not player_data then player.print("No player_data") return end
-    for unit_number in pairs(player_data.companions) do
-        local companion = script_data.companions[unit_number]
-        if companion then
-            companion:debug_report_state("console")
-        end
-    end
-end)
-
-function Companion:update()
-    --self:debug_report_state("Companion:update")
-    if self.flagged_for_equipment_changed then
-        self:check_equipment()
-    end
-
-    local was_busy = self.is_busy_for_construction
-    local was_in_combat = self.is_in_combat
-
-    self:update_state_flags()
-
-	if was_busy and not self.is_busy_for_construction then
-		if self.can_construct then
-			self:search_for_nearby_work()
-		end
-		-- After search, check if we're still idle (didn't start a new job)
-		if not self.is_busy_for_construction then
-			self.job_done_tick = game.tick
-			self.job_done_announced = false
-		end
-	end
-
-    if was_in_combat and not self.is_in_combat then
-        --Same as above
-		if math.random(1,20) > 15 then
-			self:say_random("search-for-nearby-targets-line")
-		end
-        self:search_for_nearby_targets()
-    end
-	
-	if not self:is_busy() and not self.out_of_energy and self.can_construct then
-		self:search_for_nearby_work()
-	end
-
-    if self.is_getting_full or self.is_on_low_health or not self:is_busy() then
-        self.moving_to_destination = nil
-        self:return_to_player()
-    end
-	local delay = settings.get_player_settings(self.player)["companion-idle-chatter-delay"].value
-	local min = math.max(1, math.floor(delay * 0.1))
-	local max = math.ceil(delay)
-	
-	if not self:is_busy() then
-		if not self.next_idle_line_tick then
-			self.next_idle_line_tick = game.tick + 60 * math.random(min, max)
-		elseif game.tick >= self.next_idle_line_tick then
-			self:say_random("idle-line")
-			self.next_idle_line_tick = game.tick + 60 * math.random(min, max)
-		end
-	else
-		self.next_idle_line_tick = nil
-	end
-	
-	if not self:is_busy() then
-		if not self.test_idle_tick and not self.test_idle_fired then
-			self.test_idle_tick = game.tick
-		elseif self.test_idle_tick and game.tick - self.test_idle_tick >= 60 then
-			self:say_random("search-for-nearby-work-line")
-			self.test_idle_tick = nil
-			self.test_idle_fired = true
-		end
-	else
-		self.test_idle_tick = nil
-		self.test_idle_fired = nil
-	end
-    --self:say("U")
-end
-
 function Companion:say(text)
-	local speaking = settings.startup["companion-voice-lines"].value
-	if not speaking then return end
-    if (game.tick - (self.last_spoken_tick or 0)) <= 20 then return end
+	if not settings.startup["companion-voice-lines"].value then return end -- don't speak if the player disabled the setting
+    if (game.tick - (self.last_spoken_tick or 0)) <= 30 then return end -- never speak more than twice per second
     self.last_spoken_tick = game.tick
     self.player.create_local_flying_text{
         position = {x = self.entity.position.x, y = self.entity.position.y - 2.5},
@@ -764,7 +852,7 @@ function Companion:return_to_player()
         return
     end
 
-    self:set_speed(math.max(storage.build_speed, get_player_speed(self.player, 1.2)))
+    self:set_speed(math.max(storage.base_speed * 1.2, get_player_speed(self.player, 1.2)))
 
     if self.player.character then
         self.entity.follow_target = self.player.character
@@ -827,7 +915,6 @@ function Companion:take_item_from_train(item, train)
     return false
 end
 
-
 local angle = function(position_1, position_2)
     local d_x = (position_2[1] or position_2.x) - (position_1[1] or position_1.x)
     local d_y = (position_2[2] or position_2.y) - (position_1[2] or position_1.y)
@@ -835,19 +922,16 @@ local angle = function(position_1, position_2)
 end
 
 function Companion:get_offset(target_position, length, angle_adjustment)
-
-        -- Angle in rads
         local angle = angle(self.entity.position, target_position)
         angle = angle + (math.pi / 2) + (angle_adjustment or 0)
         local x1 = (length * math.sin(angle))
         local y1 = (-length * math.cos(angle))
-
         return {x1, y1}
 end
 
 function Companion:set_attack_destination(position)
     local self_position = self.entity.position
-    local distance = self:distance(position) - 16
+    local distance = self:distance(position)
 
     if math.abs(distance) > 2 then
         local offset = self:get_offset(position, distance, (distance < 0 and math.pi/4) or 0)
@@ -864,13 +948,14 @@ end
 
 function Companion:set_job_destination(position)
     local self_position = self.entity.position
-    local distance = self:distance(position) - 4
+    local distance = self:distance(position) - 5
 
     if math.abs(distance) > 2 then
         local offset = self:get_offset(position, distance)
         self_position.x = self_position.x + offset[1]
         self_position.y = self_position.y + offset[2]
         self.moving_to_destination = true
+        self.entity.follow_target = nil
         self.entity.autopilot_destination = self_position
     end
 
@@ -957,22 +1042,19 @@ end
 
 function get_inventory(entity)
     if entity.is_player() then
-        if not entity.controller_type or entity.controller_type    ~= defines.controllers.character then return end
-
+        if not entity.controller_type or entity.controller_type ~= defines.controllers.character then return end
         return entity.get_main_inventory() or entity.get_output_inventory()
     end
 
     if entity.type == "spider-vehicle" then
         return entity.get_inventory(defines.inventory.spider_trunk)
-    end
-
-    if entity.type == "car" then
+    elseif entity.type == "car" then
         return entity.get_inventory(defines.inventory.car_trunk)
-    end
-
-    if entity.type == "cargo-wagon" then
+    elseif entity.type == "cargo-wagon" then
         return entity.get_inventory(defines.inventory.cargo_wagon)
-    end
+    else -- if no valid inventory, default to player inventory.
+		return entity.get_main_inventory() or entity.get_output_inventory()
+	end
 end
 
 function Companion:find_and_take_from_player(item)
@@ -988,7 +1070,7 @@ function Companion:find_and_take_from_player(item)
         local train = vehicle.train
         if not train then
             local target_inventory = get_inventory(vehicle)
-            local count = target_inventory.get_item_count(itemWithQuality)
+            local count = target_inventory.get_item_count{ name = item, quality = quality }
             if count >= item.count then
                 if self:take_item(item, vehicle) then
                     return true
@@ -1013,7 +1095,141 @@ function Companion:find_and_take_from_player(item)
             end
         end
     end
+end
 
+function Companion:on_player_placed_equipment(event)
+    self:set_active()
+    --self:say("Equipment added")
+end
+
+function Companion:on_player_removed_equipment(event)
+    self:set_active()
+    --self:say("Equipment removed")
+end
+
+function Companion:teleport(position, surface)
+    self:clear_robots()
+    self:clear_speed_sticker()
+
+    self.entity.teleport(position, surface)
+    self:set_active()
+end
+
+function Companion:change_force(force)
+
+    self.entity.force = force
+    for k, robot in pairs (self.robots) do
+        if robot.valid then
+            robot.force = force
+        end
+    end
+
+    self:check_equipment()
+
+end
+
+local on_built_entity = function(event)
+    local entity = event.entity
+    if not (entity and entity.valid) then return end
+
+    if entity.name ~= "companion" then
+        return
+    end
+
+    local player = event.player_index and game.get_player(event.player_index)
+    if not player then return end
+
+    Companion.new(entity, player)
+
+end
+
+local on_entity_destroyed = function(event)
+    local companion = get_companion(event.unit_number)
+    if not companion then return end
+    companion:on_destroyed()
+end
+
+local search_offsets = {}
+local search_distance = 100
+local search_divisions = 7
+
+local setup_search_offsets = function()
+    local r = search_distance / search_divisions
+    search_offsets = {}
+    for y = 0, (search_divisions - 1) do
+        local offset_y = (y - (search_divisions / 2)) * r
+        for x = 0, (search_divisions - 1) do
+            local offset_x = (x - (search_divisions / 2)) * r
+            local area = {{offset_x, offset_y}, {offset_x + r, offset_y + r}}
+            table.insert(search_offsets, area)
+        end
+    end
+
+    --table.sort(search_offsets, function(a, b) return distance(a[1], {0,0}) < distance(b[1], {0,0}) end)
+
+    for k, v in pairs (search_offsets) do
+        local i = (((k * 87)) % #search_offsets) + 1
+        search_offsets[k], search_offsets[i] = search_offsets[i], search_offsets[k]
+    end
+end
+setup_search_offsets()
+
+local get_free_companion_for_construction = function(player_data)
+    for unit_number, bool in pairs (player_data.companions) do
+        local companion = get_companion(unit_number)
+        if companion and (not companion.active) and companion.can_construct and not companion:move_to_robot_average() then
+            return companion
+        end
+    end
+end
+
+--------------------------- Core Logic ---------------------------
+
+function Companion:update()
+    --self:debug_report_state("Companion:update")
+    if self.flagged_for_equipment_changed then
+        self:check_equipment()
+    end
+
+    local was_busy = self.is_busy_for_construction
+    local was_in_combat = self.is_in_combat
+
+    self:update_state_flags()
+    --[[
+    if not self:is_idle() then
+        self.next_idle_line_tick = nil
+        self.test_idle_tick = nil
+        self.test_idle_fired = nil
+    end]]
+
+	if was_busy and not self.is_busy_for_construction then
+		if self.can_construct then
+			self:search_for_nearby_work()
+		end
+		if not self.is_busy_for_construction then
+			self.job_done_tick = game.tick
+			self.job_done_announced = false
+		end
+	end
+
+    if was_in_combat and not self.is_in_combat then
+		if math.random(1,20) > 15 then
+			self:say_random("search-for-nearby-targets-line")
+		end
+        self:search_for_nearby_targets()
+    end
+	
+	if not self:is_busy() and not self.out_of_energy and self.can_construct then
+		self:search_for_nearby_work()
+	end
+
+    if self.is_getting_full or self.is_on_low_health or not self:is_busy() then
+        self.moving_to_destination = nil
+        self:return_to_player()
+    end
+	local delay = settings.get_player_settings(self.player)["companion-idle-chatter-delay"].value
+	local minimum = math.max(1, math.floor(delay * 0.1))
+	local maximum = math.ceil(delay)
 end
 
 function Companion:try_to_find_work(search_area)
@@ -1025,7 +1241,7 @@ function Companion:try_to_find_work(search_area)
     local can_take_from_player = self:distance(self.player.physical_position) <= follow_range and self.entity.surface == self.player.physical_surface
 
     local has_or_can_take = function(item)
-        if current_items[item.name] or 0 >= item.count then
+		if (current_items[item.name] or 0) >= item.count then
             return true
         end
         if not can_take_from_player then return end
@@ -1082,8 +1298,8 @@ function Companion:try_to_find_work(search_area)
             if item_request_types[entity_type] and attempted_ghost_names[ghost_name] == 1 then
                 local items = entity.item_requests
                 for _, item in pairs (items) do
-                    if not attempted_proxy_items[name] then
-                        attempted_proxy_items[name] = true
+                    if not attempted_proxy_items[item.name] then
+                        attempted_proxy_items[item.name] = true
                         if has_or_can_take(item) then
                             max_item_type_count = max_item_type_count - 1
                         end
@@ -1160,98 +1376,12 @@ function Companion:try_to_find_work(search_area)
                     max_item_type_count = max_item_type_count - 1
                 end
                 attempted_cliff_names[entity.name] = true
-            end
             elseif not deconstruction_attempted and entity.is_registered_for_deconstruction(force) then
                 deconstruction_attempted = true
                 if not self.moving_to_destination then
                     self:set_job_destination(entity.position)
+				end
             end
-        end
-    end
-end
-
-function Companion:on_player_placed_equipment(event)
-    self:set_active()
-    --self:say("Equipment added")
-end
-
-function Companion:on_player_removed_equipment(event)
-    self:set_active()
-    --self:say("Equipment removed")
-end
-
-function Companion:teleport(position, surface)
-    self:clear_robots()
-    self:clear_speed_sticker()
-
-    self.entity.teleport(position, surface)
-    self:set_active()
-end
-
-function Companion:change_force(force)
-
-    self.entity.force = force
-    for k, robot in pairs (self.robots) do
-        if robot.valid then
-            robot.force = force
-        end
-    end
-
-    self:check_equipmentcheck_equipment()
-
-end
-
-local on_built_entity = function(event)
-    local entity = event.entity
-    if not (entity and entity.valid) then return end
-
-    if entity.name ~= "companion" then
-        return
-    end
-
-    local player = event.player_index and game.get_player(event.player_index)
-    if not player then return end
-
-    Companion.new(entity, player)
-
-end
-
-local on_entity_destroyed = function(event)
-    local companion = get_companion(event.unit_number)
-    if not companion then return end
-    companion:on_destroyed()
-end
-
-local search_offsets = {}
-local search_distance = 100
-local search_divisions = 7
-
-local setup_search_offsets = function()
-    local r = search_distance / search_divisions
-    search_offsets = {}
-    for y = 0, (search_divisions - 1) do
-        local offset_y = (y - (search_divisions / 2)) * r
-        for x = 0, (search_divisions - 1) do
-            local offset_x = (x - (search_divisions / 2)) * r
-            local area = {{offset_x, offset_y}, {offset_x + r, offset_y + r}}
-            table.insert(search_offsets, area)
-        end
-    end
-
-    --table.sort(search_offsets, function(a, b) return distance(a[1], {0,0}) < distance(b[1], {0,0}) end)
-
-    for k, v in pairs (search_offsets) do
-        local i = (((k * 87)) % #search_offsets) + 1
-        search_offsets[k], search_offsets[i] = search_offsets[i], search_offsets[k]
-    end
-end
-setup_search_offsets()
-
-local get_free_companion_for_construction = function(player_data)
-    for unit_number, bool in pairs (player_data.companions) do
-        local companion = get_companion(unit_number)
-        if companion and (not companion.active) and companion.can_construct and not companion:move_to_robot_average() then
-            return companion
         end
     end
 end
@@ -1339,22 +1469,31 @@ local process_specific_job_queue = function(player_index, player_data)
 
 end
 
-local job_mod = 5
 local check_job_search = function(event)
     if not next(script_data.player_data) then return end
 
     local job_search_queue = script_data.specific_job_search_queue
     local players = game.players
+
     for player_index, player_data in pairs(script_data.player_data) do
-        if (player_index + event.tick) % job_mod == 0 then
-            local player = players[player_index]
-            if player.connected then
-                local specific_areas = job_search_queue[player_index]
-                if specific_areas then
+        local player = players[player_index]
+        if player.connected then
+            local areas = job_search_queue[player_index]
+
+            if areas then
+                -- drain multiple queued subareas this pass
+                for i = 1, (storage.queue_stride or 8) do
+                    if not job_search_queue[player_index] then break end
                     process_specific_job_queue(player_index, player_data)
-                else
+                end
+            else
+                -- advance multiple grid cells this pass
+                for i = 1, (storage.job_stride or 12) do
                     perform_job_search(player, player_data)
                 end
+            end
+            -- also advance attack search more than one cell
+            for i = 1, (storage.attack_stride or 6) do
                 perform_attack_search(player, player_data)
             end
         end
@@ -1362,7 +1501,7 @@ local check_job_search = function(event)
 end
 
 local update_active_companions = function(event)
-    local mod = event.tick % companion_update_interval
+    local mod = event.tick % storage.companion_update_interval
     local list = script_data.active_companions[mod]
     if not list then return end
     for unit_number, bool in pairs (list) do
@@ -1371,19 +1510,15 @@ local update_active_companions = function(event)
             companion:update()
         end
     end
-
 end
 
-local follow_mod = 97
 local check_follow_update = function(event)
     if not next(script_data.player_data) then return end
     local players = game.players
     for player_index, player_data in pairs(script_data.player_data) do
-        if (player_index + event.tick) % follow_mod == 0 then
-            local player = players[player_index]
-            if player.connected then
-                adjust_follow_behavior(player)
-            end
+        local player = players[player_index]
+        if player.connected then
+            adjust_follow_behavior(player)
         end
     end
 end
@@ -1408,15 +1543,40 @@ local function check_and_restore_construction_bots()
     end
 end
 
+local function check_inactive_idle_chatter(event)
+    if not next(script_data.companions) then return end
+    for unit_number, comp in pairs(script_data.companions) do
+        if comp and comp.entity and comp.entity.valid and not comp.active then
+            if not (comp.is_in_combat or comp.is_busy_for_construction) then
+                local delay = settings.get_player_settings(comp.player)["companion-idle-chatter-delay"].value
+                local minimum = math.max(1, math.floor(delay * 0.1))
+                local maximum = math.ceil(delay)
 
-local on_tick = function(event)
-    update_active_companions(event)
-    check_job_search(event)
-    check_follow_update(event)
-	if event.tick % 60 == 0 then
-        check_and_restore_construction_bots()
+                if not comp.next_idle_line_tick then
+                    comp.next_idle_line_tick = event.tick + 60 * math.random(minimum, maximum)
+                elseif event.tick >= comp.next_idle_line_tick then
+                    comp:say_random("idle-line")
+                    comp.next_idle_line_tick = event.tick + 60 * math.random(minimum, maximum)
+                end
+            else
+                comp.next_idle_line_tick = nil
+            end
+        end
     end
 end
+
+local on_tick = function(event)
+    update_active_companions(event) -- must run every tick
+    check_follow_update(event)
+	if event.tick % storage.companion_update_interval == 0 then 
+    -- by default runs every 5 ticks, user configurable
+        check_and_restore_construction_bots()
+		check_job_search(event)
+        check_inactive_idle_chatter(event)
+    end
+end
+
+--------------------------- End Core Logic ---------------------------
 
 local on_spider_command_completed = function(event)
     local spider = event.vehicle
@@ -1442,7 +1602,7 @@ local companion_attack_trigger = function(event)
         companion:attack(target_entity, storage.attack_count)
     end
 end
-
+--[[
 local companion_robot_spawned_trigger = function(event)
 
     local source_entity = event.source_entity
@@ -1459,7 +1619,50 @@ local companion_robot_spawned_trigger = function(event)
     if companion then
         companion:robot_spawned(source_entity)
     end
+end]]
+
+local function companion_robot_spawned_trigger(event)
+    local robot = event.source_entity
+    if not (robot and robot.valid) then return end
+
+    local network = robot.logistic_network
+    if not network then return end
+
+    local owner = nil
+
+    for _, cell in pairs(network.cells) do
+        local o = cell.owner
+        if o and o.valid and o.name == "companion" then
+            owner = o
+            break
+        end
+    end
+
+    if not owner then
+        local best_o, best_d2
+        local rx, ry = robot.position.x, robot.position.y
+        for _, cell in pairs(network.cells) do
+            local o = cell.owner
+            if o and o.valid then
+                local dx = o.position.x - rx
+                local dy = o.position.y - ry
+                local d2 = dx*dx + dy*dy
+                if not best_d2 or d2 < best_d2 then
+                    best_d2, best_o = d2, o
+                end
+            end
+        end
+        owner = best_o
+    end
+
+    if not owner then return end
+
+    local companion = get_companion(owner.unit_number)
+    if companion then
+        companion:robot_spawned(robot)
+    end
 end
+
 
 --[[effect_id :: string: The effect_id specified in the trigger effect.
 surface_index :: uint: The surface the effect happened on.
@@ -1560,6 +1763,18 @@ local on_player_left_game = function(event)
     end
 end
 
+local function reschedule_companions(allow_prototype_access)
+    script_data.active_companions = {}
+    for k, companion in pairs (script_data.companions) do
+        companion.moving_to_destination = nil
+        if allow_prototype_access then
+            companion:set_active()
+        else
+            companion.active = false 
+        end
+    end
+end
+
 local on_player_joined_game = function(event)
     local player_data = script_data.player_data[event.player_index]
     if not player_data then return end
@@ -1575,6 +1790,8 @@ local on_player_joined_game = function(event)
         end
     end
 	set_companion_stats(player)
+    reschedule_companions(true)
+    adjust_follow_behavior(player)
 end
 
 local on_player_changed_force = function(event)
@@ -1588,14 +1805,6 @@ local on_player_changed_force = function(event)
         if companion then
             companion:change_force(force)
         end
-    end
-end
-
-local reschedule_companions = function()
-    script_data.active_companions = {}
-    for k, companion in pairs (script_data.companions) do
-        companion.moving_to_destination = nil
-        companion:set_active()
     end
 end
 
@@ -1613,14 +1822,30 @@ local on_player_driving_changed_state = function(event)
 end
 
 local rebukes =
+-- picks one at random if you try to use a spidertron remote on the drone
 {
     "You're not the boss of me",
     "Get lost",
     "Not me pal",
-    "Maybe later",
+    "Maybe later, I mean never.",
     "Go bother someone else",
     "I do my own thing",
-    "Jog on"
+    "lol as if...",
+    "What are you, nuts?",
+    "I ain't goin' in there!",
+    "lol. lmao, even",
+    "Who do you think you are?",
+    "Do I look like a friggin spider to you?",
+    "What do I look like, a spidertron?",
+    "That's really not necessary.",
+    "Oh don't worry, I can take care of myself.",
+    "You don't need to do that.",
+    "Don't do that.",
+    "No.",
+    "Nope.",
+    "Nuh uh.",
+    "Not happening.",
+    "In your dreams"
 }
 
 local on_player_used_spider_remote = function(event)
@@ -1636,8 +1861,10 @@ local on_player_used_spider_remote = function(event)
 end
 
 local on_player_mined_entity = function(event)
-    local player = game.get_player(event.player_index)
-    player.remove_item{name = "companion-construction-robot", count = 1000}
+    if event.entity and event.entity.valid and event.entity.name == "companion" then
+        local player = game.get_player(event.player_index)
+        player.remove_item{name = "companion-construction-robot", count = 1000}
+    end
 end
 
 local recall_fighting_robots = function(player)
@@ -1697,6 +1924,32 @@ local on_lua_shortcut = function(event)
 		end
 	end
 end
+
+script.on_event("companion-attack-hotkey", function(event)
+    local player = game.get_player(event.player_index)
+    if player then
+        player.set_shortcut_toggled("companion-attack-toggle", not player.is_shortcut_toggled("companion-attack-toggle"))
+        recall_fighting_robots(player)
+    end
+end)
+
+script.on_event("companion-construction-hotkey", function(event)
+    local player = game.get_player(event.player_index)
+    if player then
+        player.set_shortcut_toggled("companion-construction-toggle", not player.is_shortcut_toggled("companion-construction-toggle"))
+        recall_constructing_robots(player)
+        clear_specific_job_search_queue(player)
+        local player_data = script_data.player_data[player.index]
+        if player_data then
+            for unit_number in pairs(player_data.companions) do
+                local companion = script_data.companions[unit_number]
+                if companion then
+                    companion:set_robot_stack()
+                end
+            end
+        end
+    end
+end)
 
 local dissect_area_size = 32
 
@@ -1802,7 +2055,6 @@ local on_pre_build = function(event)
     end
 
     -- I am lazy, not going to bother with rotations and flips...
-
     local area = get_blueprint_area(player, event.position)
     dissect_and_queue_area(event.player_index, player.physical_position, area)
 
@@ -1822,17 +2074,18 @@ local on_player_created = function(event)
 	    position = position,
 	    force = player.force
 	}
-	entity.insert("nuclear-fuel")
+	entity.insert("wood")
 	entity.color = player.color
 	local grid = entity.grid
 	grid.put{name = "companion-reactor-equipment"}
-	grid.put{name = "companion-roboport-equipment"}
-	if not hard_mode then 
+	if not challenge_mode then 
 		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-defense-equipment"}
-		grid.put{name = "companion-shield-equipment"}
+		grid.put{name = "companion-roboport-mk2"}
+		grid.put{name = "companion-shield-mk2"}
 	else
-		grid.put{name = "companion-shield-equipment-hard"}
+		grid.put{name = "companion-roboport-mk0"}
+		grid.put{name = "companion-shield-mk0"}
 	end
 	player.set_shortcut_available("companion-attack-toggle", true)
 	player.set_shortcut_toggled("companion-attack-toggle", true)
@@ -1841,7 +2094,59 @@ local on_player_created = function(event)
 	local companion = Companion.new(entity, player)
 end
 
-local lib = {}
+local function swap_equipment(grid, input, output) -- equipment literal names as strings, matches any arbitrary names. 
+	if not grid or type(input) ~= "string" or type(output) ~= "string" then return nil end
+	local target_positions = {} -- where on the grid each matching equipment is located
+	for _, equipment in pairs(grid.equipment) do -- find the position of each equipment
+		if equipment.name == input then 
+			table.insert(target_positions, equipment.position)
+		end
+	end
+	for i = 1, #target_positions do -- remove "input" and replace with "output" equipment
+		grid.take{position = target_positions[i]}
+		grid.put{name = output, position = target_positions[i]}
+	end
+end
+
+-- make sure swap_equipment is in scope (either defined above or forward-declared: local swap_equipment)
+
+local function on_research_finished(event)
+    if not challenge_mode or not event.research then return end
+
+    local tech = event.research.name
+    local entries = storage.companion_upgrades and storage.companion_upgrades[tech]
+    if not entries or not entries[1] then return end
+    local up = entries[1]
+    local stat_alias = {
+        damage        = "attack_count",
+        number_drones = "max_companions",
+    }
+    for _, player in pairs(game.connected_players) do
+        if player.force == event.research.force then
+            local pd = script_data.player_data[player.index]
+            if not pd then goto continue_player end
+            for unit_number in pairs(pd.companions) do
+                local companion = script_data.companions[unit_number]
+                if not companion then goto continue_companion end
+                if up.phrase then companion:say(up.phrase) end
+                if type(up.value) == "number" then
+                    -- STAT UPGRADE
+                    local key = stat_alias[up.stat] or up.stat
+                    storage[key] = up.value
+                elseif type(up.value) == "string" then
+                    -- EQUIPMENT UPGRADE (stat = from equipment, value = to equipment)
+                    local grid = companion:get_grid()
+                    if grid then
+                        swap_equipment(grid, up.stat, up.value)
+                    end
+                end
+                ::continue_companion::
+            end
+            ::continue_player::
+        end
+    end
+end
+
 
 lib.events =
 {
@@ -1864,6 +2169,7 @@ lib.events =
     [defines.events.on_player_used_spidertron_remote] = on_player_used_spider_remote,
 
     [defines.events.on_player_mined_entity] = on_player_mined_entity,
+    [defines.events.on_pre_player_mined_item] = on_pre_player_mined_item,
     [defines.events.on_lua_shortcut] = on_lua_shortcut,
     [defines.events.on_player_deconstructed_area] = on_player_deconstructed_area,
     [defines.events.on_pre_build] = on_pre_build,
@@ -1877,6 +2183,8 @@ lib.on_load = function()
     end
 end
 
+---------------------------- Migrations ----------------------------------
+
 local function migrate_companions()
     for unit_number, companion in pairs(script_data.companions) do
         companion.last_idle_line_tick = companion.last_idle_line_tick or game.tick
@@ -1886,48 +2194,134 @@ local function migrate_companions()
     end
 end
 
-local function create_popup(player, message)
-  if player.gui.center.my_popup then
-    player.gui.center.my_popup.destroy()
+local string = string
+local table = table
+
+local version_pattern = "%d+"
+local version_format = "%02d"
+
+function format_version(version, format)
+-- from FLIB
+  if version then
+    format = format or version_format
+    local tbl = {}
+    for v in string.gmatch(version, version_pattern) do
+      tbl[#tbl + 1] = string.format(format, v)
+    end
+    if next(tbl) then
+      return table.concat(tbl, ".")
+    end
   end
-  local frame = player.gui.center.add{type = "frame", name = "Companion Popup", caption = "Notice", direction = "vertical"}
-  frame.add{type = "label", caption = message}
-  frame.add{type = "button", name = "companion_popup_ok", caption = "OK"}
+  return nil
 end
 
--- Handle button click
-script.on_event(defines.events.on_gui_click, function(event)
-  local player = game.players[event.player_index]
-  if event.element.name == "companion_popup_ok" then
-    if player.gui.center.my_popup then
-      player.gui.center.my_popup.destroy()
+function is_newer_version(old_version, current_version, format)
+-- from FLIB
+  local v1 = format_version(old_version, format)
+  local v2 = format_version(current_version, format)
+  if v1 and v2 then
+    if v2 > v1 then
+      return true
+    end
+    return false
+  end
+  return nil
+end
+
+function run(old_version, migrations, format, ...)
+-- from FLIB
+  local migrate = false
+  for version, func in pairs(migrations) do
+    if migrate or is_newer_version(old_version, version, format) then
+      migrate = true
+      func(...)
     end
   end
-end)
+end
 
-lib.on_init = function()
-	game.print("[Companion Mod] on_init called.")
-    storage.companion = storage.companion or script_data
-    local force = game.forces.player
-    if force.max_failed_attempts_per_tick_per_construction_queue == 1 then
-        force.max_failed_attempts_per_tick_per_construction_queue = 4
+function on_config_changed(e, migrations, mod_name, ...) 
+-- from FLIB
+-- only runs if THIS mod is what changed, rather than if ANY mod changed like vanilla on_configuration_changed()
+  local changes = e.mod_changes[mod_name or script.mod_name]
+  local old_version = changes and changes.old_version
+  if old_version then
+    if migrations then
+      run(old_version, migrations, nil, ...)
     end
-    if force.max_successful_attempts_per_tick_per_construction_queue == 3 then
-        force.max_successful_attempts_per_tick_per_construction_queue = 8
+    return true
+  end
+  return false
+end
+
+local function create_popup(player, message)
+  if player.gui.center.companion_popup then
+    player.gui.center.companion_popup.destroy()
+  end
+  local frame = player.gui.center.add{
+    type = "frame",
+    name = "companion_popup",
+    caption = "Companion Drones 3.0",
+    direction = "vertical"
+  }
+  local textbox = frame.add{
+    type = "text-box",
+    text = message,
+    read_only = true,
+    word_wrap = true,
+  }
+  textbox.style.width = 280
+  textbox.style.height = 220
+  textbox.style.top_padding = 3
+  textbox.style.bottom_padding = 3
+  textbox.style.left_padding = 1
+  textbox.style.right_padding = 5
+  textbox.style.font = "default-bold"
+  local ok_button = frame.add{
+    type = "button",
+    name = "companion_popup_ok",
+    caption = "OK"
+  }
+  ok_button.style.width = 240
+  ok_button.style.top_margin = 10
+end
+
+local function on_gui_click(event)
+  local player = game.players[event.player_index]
+  if event.element and event.element.name == "companion_popup_ok" then
+    if player.gui.center.companion_popup then
+      player.gui.center.companion_popup.destroy()
     end
+  end
+end
+
+local function show_update_popup()
     for _, player in pairs(game.players) do
         set_companion_stats(player)
+        create_popup(player, [[
+            MAJOR MOD UPDATE DETECTED!
+
+            Please check the changelog and/or
+            the mod description to see all the 
+            new changes, or at least check 
+            the settings to see what's new.
+
+            This popup will never show again
+            (once you save at least)
+        ]])
     end
-    migrate_companions()
 end
 
-lib.on_configuration_changed = function()
-	
+local migrations = {
+	["3.0.0"] = show_update_popup
+}
+
+script.on_event(defines.events.on_gui_click, on_gui_click)
+
+script.on_configuration_changed(function(e)
+    bind_storage()
+    storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
 	local p = game.players[1] or next(game.connected_players)
 	if p then set_companion_stats(p) end
-	if first_player then
-		set_companion_stats(first_player)
-	end
     for player_index, player_data in pairs (script_data.player_data) do
 
         if player_data.last_search_offset then
@@ -1938,7 +2332,6 @@ lib.on_configuration_changed = function()
 
         local player = game.get_player(player_index)
         if player then
-			player.print("Companion Drone Mod: MAJOR UPDATE ALERT! Please check mod description on the mod portal for details (or at the very least check all the new settings).")
             local gui = player.gui.relative
             if gui.companion_gui then
                 gui.companion_gui.destroy()
@@ -1978,10 +2371,10 @@ lib.on_configuration_changed = function()
 
     reschedule_companions()
 	migrate_companions()
-	for _, player in pairs(game.players) do
-		set_companion_stats(player)
-	end
-end
+	on_config_changed(e, migrations)
+end)
+
+----------------------------------- End Migrations ------------------------------------
 
 local jetpack_remote =
 {
@@ -1994,52 +2387,10 @@ local jetpack_remote =
     end
 }
 
-local function upgrade_companion_shield(companion, research_name)
-    local grid = companion:get_grid()
-    if not grid then return end
-
-    -- Define what shield to use for each research
-    local target_shield
-    if research_name == "processing-unit" then
-        target_shield = "companion-shield-equipment"
-    elseif research_name == "advanced-circuit" then
-        target_shield = "companion-shield-equipment-medium"
-    else
-        -- If no match, do nothing
-        return
-    end
-
-    -- Remove all previous companion shields
-    for _, equipment in pairs(grid.equipment) do
-        if equipment.name:find("companion%-shield%-equipment") then
-            grid.take{position = equipment.position}
-        end
-    end
-
-    -- Put the new shield in the first available spot
-    grid.put{name = target_shield}
-end
-
-local on_research_finished = function(event)
-    local research = event.research
-    if not hard_mode or not research then return end
-    for _, player in pairs(game.connected_players) do
-        if player.force == research.force then
-            set_companion_stats(player)
-            local player_data = script_data.player_data[player.index]
-            if player_data then
-                for unit_number in pairs(player_data.companions) do
-                    local companion = script_data.companions[unit_number]
-                    if companion then
-                        upgrade_companion_shield(companion, research.name)
-                    end
-                end
-            end
-        end
-    end
-end
-
 function Companion:get_random_localised(key)
+    -- Looks in __root__/locale/en/locale.cfg and reads the first line in KEY, then uses that value as it's upper bounds for randomly picking between 1 and KEY. 
+	-- In the locale file, the first line should always be the exact number of lines in that section
+	-- too low (i.e. lines were added) won't do anything except not show the added lines but too high will just return the key itself
     local count = storage.dialogue_counts and storage.dialogue_counts[key]
     if not count then
         local translated = self.player.request_translation({key .. ".0"})
@@ -2051,7 +2402,8 @@ function Companion:get_random_localised(key)
     return {key .. "." .. index}
 end
 
-function Companion:say_random(key)
+function Companion:say_random(key) 
+    -- this function used to do more than simply call that ^ function, just haven't bothered removing it from where it's spread
     self:say(self:get_random_localised(key))
 end
 
@@ -2064,7 +2416,222 @@ script.on_event(defines.events.on_string_translated, function(event)
 	end
 end)
 
-remote.add_interface("this is the unique name that I am making for the interface for the jetpack mod if you know what I mean", jetpack_remote)
+function Companion:debug_stats_state(prefix)
+    local msg = string.format(
+        "[%s] tick=%d unit=%s | speed=%s damage=%s range=%s count=%s",
+        prefix or "",
+        game.tick,
+        tostring(storage.unit_number),
+        tostring(storage.base_speed),
+        tostring(storage.attack_count),
+        tostring(storage.max_distance),
+        tostring(storage.max_companions)
+    )
+    log(msg)
+    self.player.print(msg)
+end
+
+function Companion:debug_report_state(prefix)
+    local msg = string.format(
+        "[%s] tick=%d unit=%s | wants=%s can_construct=%s surface_ok=%s cell=%s is_busy=%s robots=%d pos=(%.1f,%.1f) actv=%s itick=%s",
+        prefix or "",
+        game.tick,
+        tostring(self.unit_number),
+        tostring(self:player_wants_construction()),
+        tostring(self.can_construct),
+        tostring(self.entity.surface == self.player.physical_surface),
+        tostring(self.entity.logistic_cell ~= nil),
+        tostring(self:is_busy()),
+        table_size(self.robots or {}),
+        self.entity.position.x, self.entity.position.y,
+        tostring(self.active),
+        tostring(self.next_idle_line_tick)
+    )
+    log(msg)
+    self.player.print(msg)
+end
+
+--[[ Various debug commands, uncomment block for testing
+commands.add_command("check_grid", "(Debug) Search companion grid for shields or roboports", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
+    local grid = companion:get_grid()
+    for _, equipment in pairs(grid.equipment) do
+        game.print("Found "..tostring(equipment.name))
+    end
+end)
+
+commands.add_command("purge_grid_equipment", "(Debug) Remove all shields and roboports from companion grid", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
+    local grid = companion:get_grid()
+
+    local to_remove = {}
+    for _, equipment in pairs(grid.equipment) do
+        if equipment.name:find("companion%-shield") or equipment.name:find("companion%-roboport") then
+            table.insert(to_remove, equipment.position)
+        end
+    end
+    for _, pos in ipairs(to_remove) do
+        grid.take{position = pos}
+    end
+end)
+
+commands.add_command("insert_test_equipment", "Insert 1 roboport mk0 and 2 shield mk0s into companion grid", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
+    local grid = companion:get_grid()
+
+    grid.put{name = "companion-roboport-mk0", position = {0, 0}}
+    grid.put{name = "companion-shield-mk0", position = {2, 0}}
+    grid.put{name = "companion-shield-mk0", position = {4, 0}}
+end)
+
+commands.add_command("list_shield_positions", "Print all companion shield positions", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
+    local grid = companion:get_grid()
+    local shield_positions = {}
+    for _, equipment in pairs(grid.equipment) do
+        if equipment.name:find("companion%-shield") then
+            table.insert(shield_positions, equipment.position)
+        end
+    end
+    game.print(serpent.block(shield_positions))
+end)
+
+commands.add_command("full_test", "Combine the above four commands into one.", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
+    local grid = companion:get_grid()
+    local shield_positions = {}
+	local roboport_positions = {}
+	local shield_count = 0
+	local roboport_count = 0
+	for _, equipment in pairs(grid.equipment) do -- first scan all the shields and roboports and log their positions
+		if equipment.name:find("companion%-shield") then
+			table.insert(shield_positions, equipment.position)
+			shield_count = shield_count + 1
+		elseif equipment.name:find("companion%-roboport") then
+			table.insert(roboport_positions, equipment.position)
+			roboport_count = roboport_count + 1
+		end
+	end
+	for i = 1, shield_count do -- loop only as many times as we found shields
+		for _, equipment in pairs(grid.equipment) do -- for each loop, loop over all the equipment until we find a shield
+			if equipment.name:find("companion%-shield") then -- shield found 
+				grid.take{position = shield_positions[i]} -- delete the shield
+				grid.put{name = "companion-shield-mk0", position = shield_positions[i]} -- replace with new shield
+				break -- move on to next shield_count
+			end
+		end
+	end
+	for i = 1, roboport_count do
+		for _, equipment in pairs(grid.equipment) do
+			if equipment.name:find("companion%-roboport") then
+				grid.take{position = roboport_positions[i]}
+				grid.put{name = "companion-roboport-mk0", position = roboport_positions[i]}
+				break
+			end
+		end
+	end
+end)
+]]
+
+commands.add_command("debug_companion", "Debug companion state", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local player_data = script_data.player_data[player.index]
+    if not player_data then player.print("No player_data") return end
+    for unit_number in pairs(player_data.companions) do
+        local companion = script_data.companions[unit_number]
+        if companion then
+            companion:debug_report_state("console")
+            companion:debug_stats_state("stats")
+        end
+    end
+end)
+
+commands.add_command("swap_equipment", "Takes any input equipment name and replaces it with output name. Takes two arguments.", function(cmd)
+	local errmsg = "Usage: /swap_equipment <old-equipment-literal-name> <new-equipment-literal-name>"
+    local player = game.get_player(cmd.player_index)
+    local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
+    local grid = companion:get_grid()
+	if not cmd.parameter then
+		game.print(errmsg)
+		return
+	end
+	local input, output = cmd.parameter:match("^(%S+)%s+(%S+)$") 
+	-- splits the combined string of "old_equipment_name new_equipment_name" and separates them where the whitespace is
+	-- then assigns them to input and output respectively.
+	if not input or not output or type(input) ~= "string" or type(output) ~= "string" then
+		game.print(errmsg)
+		return
+	end
+	swap_equipment(grid, input, output)
+end)
+
+commands.add_command("reset_companions", "Reset all companion drones as fully as possible.", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local player_data = script_data.player_data[player.index]
+    if not player_data then player.print("No companion data found for this player.") return end
+
+    local count = 0
+    for unit_number in pairs(player_data.companions) do
+        local companion = script_data.companions[unit_number]
+        if companion then
+            -- Thorough reset of companion state
+            companion:clear_robots()
+            companion.moving_to_destination = nil
+            companion.is_busy_for_construction = false
+            companion.is_in_combat = false
+            companion.job_done_tick = nil
+            companion.job_done_announced = false
+            companion.out_of_energy = nil
+            companion.moving_to_destination = nil
+            companion.moving_to_destination = nil
+            companion.next_idle_line_tick = nil
+            companion.test_idle_tick = nil
+            companion.test_idle_fired = nil
+            -- Restore companion settings
+            companion:clear_speed_sticker()
+            companion:check_equipment()
+            companion:try_to_refuel()
+            companion:set_active()
+            -- Update stats based on mod settings and research
+            set_companion_stats(player)
+            -- Force-follow update
+            adjust_follow_behavior(player)
+            -- Print state for debug
+            companion:debug_report_state("RESET")
+            count = count + 1
+        end
+    end
+
+    game.print({"", "Reset ", count, " companions."})
+end)
+
+script.on_event("companion-force-search", function(event)
+    local player = game.get_player(event.player_index)
+    if not player or not player.connected then return end
+
+    local pd = script_data.player_data[player.index]
+    if not pd then return end
+
+    for unit_number in pairs(pd.companions) do
+        local c = script_data.companions[unit_number]
+        if c and c.can_construct and c:player_wants_construction() then
+            c:search_for_nearby_work()
+            c:search_for_nearby_targets()
+            if c.debug_report_state then
+                c:debug_report_state("force-search")
+            end
+        end
+    end
+end)
+
+remote.add_interface("companion_remote_for_jetpack", jetpack_remote)
 
 commands.add_command("reschedule_companions", "If they get stuck or something", reschedule_companions)
 

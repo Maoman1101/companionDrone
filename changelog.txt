@@ -1,10 +1,34 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.0.26
+Date: 2025-08-13
+  Bugfixes:
+    - Fixed map crashing due to absurdly large speed sticker
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.26
+Date: 2025-08-13
+  Bugfixes:
+    - Three main bugs were the source of all 26 updates:
+    - 1: Companion was extremely slow when doing jobs that were all in a line
+    - 2: Companion speed did not change when upgrade value changed
+    - 3: Companion would not upgrade equipment on research finished
+
+---------------------------------------------------------------------------------------------------
 Version: 3.0.0
 Date: 2025-08-01
   Major Features:
     - Hard Mode: Make the companion kinda crappy to begin with, and expensive to craft,
 	  so you'd better take care of your one and only companion. It gets better over time
 	  as you research technologies, reaching peak strength at Space Science.
+    - Dialogue: The companion can speak now! It can say things when it finishes a job, when
+      it kills an enemy, or just randomly when it's floating around doing nothing. Configurable.
+  Minor Features:
+    - Can toggle use best fuel first or worst fuel first
+  Optimizations:
+    - Many small tweaks throughout the codebase to improve performance and resilience. 
+  Debug:
+    - Added /debug_companion to check many technical stats about the drone
+    - Added /swap_equipment for testing purposes
 ---------------------------------------------------------------------------------------------------
 Version: 2.0.10
 Date: 2024-11-17

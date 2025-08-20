@@ -1,41 +1,44 @@
 local util = require("util")
 local challenge_mode = settings.startup["set-challenge-mode"].value
-storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
 local follow_range = 12
-local sticker_life = 100
-if not storage then storage = storage or {} end
-storage.fuel_multiplier = 10 -- flat speed multiplier for tweaking balance
-storage.companion_speed_factor = storage.companion_speed_factor or 1.0
-storage.player_speed_factor = storage.player_speed_factor or {} 
+local sticker_life = 1
 local lib = {}
 
 --------------------------- Challenge Mode Stat Control ---------------------------
 
-if challenge_mode then 
-    storage.base_speed                   = 0.01
-    storage.attack_count                 = 0
-    storage.max_distance                 = 8
-    storage.max_companions               = 1 -- shitty values to start with in challenge mode
-else
-    storage.base_speed                   = 1
-    storage.attack_count                 = 6
-    storage.max_distance                 = 25
-    storage.max_companions               = 2 -- moderately good (but not best) values for non challenge mode players
+local function set_defaults()
+    if not storage then storage = storage or {} end
+    storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
+    storage.fuel_multiplier = 1
+    storage.companion_speed_factor = storage.companion_speed_factor or 1.0
+    storage.player_speed_factor = storage.player_speed_factor or {} 
+    if challenge_mode then 
+        storage.base_speed                   = 0.5
+        storage.attack_count                 = 0
+        storage.max_distance                 = 8
+        storage.max_companions               = 1 -- shitty values to start with in challenge mode
+    else
+        storage.base_speed                   = 1
+        storage.attack_count                 = 6
+        storage.max_distance                 = 25
+        storage.max_companions               = 2 -- moderately good (but not best) values for non challenge mode players
+    end
 end
 
 local function ensure_companion_upgrades()
+    if not challenge_mode then return end
     if not storage then storage = {} end
     if not storage.companion_upgrades then
         storage.companion_upgrades = {
-            ["electronics"]             = {{stat="base_speed",     value=0.2,  phrase="I can move a little easier now."}},
-            ["automobilism"]            = {{stat="base_speed",     value=0.5,  phrase="Engine boost activated."}},
-            ["robotics"]                = {{stat="base_speed",     value=1,    phrase="Now I can fly like those robots!"}},
-            ["rocket-fuel"]             = {{stat="base_speed",     value=5,    phrase="Rocket fuel: max speed!"}},
+            ["electronics"]             = {{stat="base_speed",     value=1,    phrase="I can move a little easier now."}},
+            ["automobilism"]            = {{stat="base_speed",     value=1.75, phrase="Engine boost activated."}},
+            ["robotics"]                = {{stat="base_speed",     value=2.5,  phrase="Now I can fly like those robots!"}},
+            ["rocket-fuel"]             = {{stat="base_speed",     value=10,   phrase="Rocket fuel: max speed!"}},
             
             ["military"]                = {{stat="attack_count",   value=1,    phrase="Rudimentary weapons systems online."}},
-            ["laser"]                   = {{stat="attack_count",   value=5,    phrase="Laser system repaired."}},
-            ["stronger-explosives-2"]   = {{stat="attack_count",   value=12,   phrase="Weapons systems powered up."}},
-            ["laser-weapons-damage-3"]  = {{stat="attack_count",   value=25,   phrase="Energy weapons at max."}},
+            ["laser"]                   = {{stat="attack_count",   value=3,    phrase="Laser system repaired."}},
+            ["stronger-explosives-2"]   = {{stat="attack_count",   value=7,    phrase="Weapons systems powered up."}},
+            ["laser-weapons-damage-3"]  = {{stat="attack_count",   value=12,   phrase="Energy weapons at max."}},
             
             ["logistics"]               = {{stat="max_distance",   value=12,   phrase="This will let me plan ahead better."}},
             ["optics"]                  = {{stat="max_distance",   value=20,   phrase="I can see more clearly now."}},
@@ -118,6 +121,8 @@ local function bind_storage()
 end
 
 lib.on_init = function()
+    set_defaults()
+    ensure_companion_upgrades()
     storage.companion = storage.companion or script_data
     storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
     local force = game.forces.player
@@ -247,7 +252,11 @@ Companion.new = function(entity, player)
             last_attack_search_offset = 0
         }
         script_data.player_data[player.index] = player_data
-        player.set_shortcut_available("companion-attack-toggle", true)
+        if challenge_mode then
+            player.set_shortcut_available("companion-attack-toggle", false)
+        else
+            player.set_shortcut_available("companion-attack-toggle", true)
+        end
         player.set_shortcut_available("companion-construction-toggle", true)
     end
 
@@ -374,16 +383,26 @@ local adjust_follow_behavior = function(player)
 end
 
 local function eff_base()
-    return (storage.base_speed or 10) * (storage.companion_speed_factor or 1.0)
+    if not storage.companion_speed_factor then
+        storage.companion_speed_factor = 1.0
+    end
+    return (storage.base_speed) * (storage.companion_speed_factor)
 end
-
+--[[
 local get_speed_boost = function(burner)
     local burning = burner.currently_burning
     if not burning then return 1 end
     if not storage.fuel_multiplier then 
-        storage.fuel_multiplier = storage.fuel_multipler or 0.001 
+        storage.fuel_multiplier = storage.fuel_multipler
     end
     return burning.name.fuel_top_speed_multiplier * storage.fuel_multiplier --* storage.base_speed
+end
+]]
+local get_speed_boost = function(burner)
+    local burning = burner and burner.currently_burning
+    if not burning then return 1 end
+    storage.fuel_multiplier = storage.fuel_multiplier or 1
+    return (burning.fuel_top_speed_multiplier or 1) * storage.fuel_multiplier
 end
 
 function Companion:can_spawn_robot()
@@ -491,24 +510,19 @@ end
 
 function Companion:set_speed(speed)
     local factor = storage.companion_speed_factor or 1.0
-
-    -- No early return: we must refresh TTL every call or boosts "decay".
     self.speed = speed
     self._last_speed_factor = factor
-
     if not storage.base_speed then storage.base_speed = 10 end
     local denom = get_speed_boost(self.entity.burner)
     local ratio = (speed * eff_base() * denom)
-
     if ratio > 1 then
         local sticker = self:get_speed_sticker()
-        local ttl = 1 + ((sticker_life / 10) * ratio)
+        local ttl = 1 + (((sticker_life / 10) * ratio) * 1000)
         if ttl > math.huge then
-            ttl = 1000
+            ttl = 100000000
         end
         sticker.time_to_live = ttl
     else
-        -- when below baseline, collapse quickly so it can't “stick” high
         if self.speed_sticker and self.speed_sticker.valid then
             self.speed_sticker.time_to_live = 1
         end
@@ -1781,14 +1795,18 @@ local on_player_left_game = function(event)
     end
 end
 
-local function reschedule_companions(allow_prototype_access)
+function reschedule_companions(allow_prototype_access)
     script_data.active_companions = {}
-    for k, companion in pairs (script_data.companions) do
-        companion.moving_to_destination = nil
-        if allow_prototype_access then
-            companion:set_active()
+    for k, companion in pairs(script_data.companions) do
+        if companion.entity and companion.entity.valid then
+            companion.moving_to_destination = nil
+            if allow_prototype_access then
+                companion:set_active()
+            else
+                companion.active = false
+            end
         else
-            companion.active = false 
+            script_data.companions[k] = nil
         end
     end
 end
@@ -2167,6 +2185,25 @@ local function swap_equipment(grid, input, output) -- equipment literal names as
 	end
 end
 
+local function apply_researched_equipment_upgrades(player, grid)
+    if not (player and grid) then return end
+    ensure_companion_upgrades()  -- builds storage.companion_upgrades if missing
+    local techs = player.force.technologies
+    -- run multiple passes so chained upgrades always reach the top tier
+    for _ = 1, 3 do
+        for tech, entries in pairs(storage.companion_upgrades) do
+            local up = entries and entries[1]
+            if up and type(up.value) == "string" then
+                local t = techs[tech]
+                if t and t.researched then
+                    -- same style as on_research_finished
+                    swap_equipment(grid, up.stat, up.value)
+                end
+            end
+        end
+    end
+end
+
 function Companion:get_random_localised(key)
     -- Looks in __root__/locale/en/locale.cfg and reads the first line in KEY, then uses that value as it's upper bounds for randomly picking between 1 and KEY. 
 	-- In the locale file, the first line should always be the exact number of lines in that section
@@ -2185,6 +2222,155 @@ end
 function Companion:say_random(key) 
     -- this function used to do more than simply call that ^ function, just haven't bothered removing it from where it's spread
     self:say(self:get_random_localised(key))
+end
+
+local function reseed_defaults()
+    storage.companion_upgrades = nil
+    ensure_companion_upgrades()
+    for _, p in pairs(game.players) do
+        set_companion_stats(p)
+    end
+    if reschedule_companions then reschedule_companions(true) end
+    game.print("Companion defaults and upgrade table re-seeded.")
+end
+
+local function converge_equipment_to_researched(player, grid)
+    if not (player and grid) then return end
+    ensure_companion_upgrades()
+    local techs = player.force.technologies
+
+    -- bounded fixpoint: apply researched swaps repeatedly to cover mk0?…?mkN and fusion tails
+    for _ = 1, 8 do  -- chain depth << 8; safe upper bound
+        local changed = false
+        for tech, entries in pairs(storage.companion_upgrades or {}) do
+            local t = techs[tech]
+            local up = entries and entries[1]
+            if t and t.researched and up and type(up.value) == "string" then
+                -- same style as on_research_finished:
+                if swap_equipment(grid, up.stat, up.value) then
+                    changed = true
+                end
+            end
+        end
+        if not changed then break end
+    end
+end
+
+local function reset_companions_for_player(player)
+    local player_data = script_data.player_data and script_data.player_data[player.index]
+    if not player_data or not next(player_data.companions) then
+        player.print("No companion data found for this player.")
+        return
+    end
+
+    local function remove_from_active(unit_number)
+        local mod = unit_number % (storage.companion_update_interval or 5)
+        local list = script_data.active_companions and script_data.active_companions[mod]
+        if list then
+            list[unit_number] = nil
+            if not next(list) then script_data.active_companions[mod] = nil end
+        end
+    end
+    
+    local count = 0
+    for unit_number in pairs(player_data.companions) do
+        local companion = script_data.companions[unit_number]
+        if companion then
+            -- Thorough reset of companion state
+            companion:clear_robots()
+            companion.moving_to_destination = nil
+            companion.is_busy_for_construction = false
+            companion.is_in_combat = false
+            companion.job_done_tick = nil
+            companion.job_done_announced = false
+            companion.out_of_energy = nil
+            companion.moving_to_destination = nil
+            companion.moving_to_destination = nil
+            companion.next_idle_line_tick = nil
+            companion.test_idle_tick = nil
+            companion.test_idle_fired = nil
+            -- Restore companion settings
+            companion:clear_speed_sticker()
+            companion:check_equipment()
+            companion:try_to_refuel()
+            companion:set_active()
+            -- Update stats based on mod settings and research
+            set_companion_stats(player)
+            -- Force-follow update
+            adjust_follow_behavior(player)
+            -- Print state for debug
+            companion:debug_report_state("RESET")
+            count = count + 1
+        end
+    end
+    game.print({"", "Reset ", count, " companions."})
+
+    local killed = 0
+    for unit_number in pairs(player_data.companions) do
+        local c = script_data.companions and script_data.companions[unit_number]
+        if c then
+            if c.try_to_shove_inventory then pcall(function() c:try_to_shove_inventory() end) end
+            if c.clear_robots then pcall(function() c:clear_robots() end) end
+            if c.clear_speed_sticker then pcall(function() c:clear_speed_sticker() end) end
+            remove_from_active(unit_number)
+            if c.entity and c.entity.valid then
+                c.entity.destroy()
+                killed = killed + 1
+            end
+            script_data.companions[unit_number] = nil
+            player_data.companions[unit_number] = nil
+        end
+    end
+
+    -- wipe per-player companion data
+    script_data.specific_job_search_queue[player.index] = nil
+    script_data.player_data[player.index] = nil
+
+    -- wipe shortcuts
+    player.set_shortcut_available("companion-attack-toggle", false)
+    player.set_shortcut_available("companion-construction-toggle", false)
+    player.set_shortcut_toggled("companion-attack-toggle", false)
+    player.set_shortcut_toggled("companion-construction-toggle", false)
+
+    -- respawn fresh companion
+    set_defaults()
+    ensure_companion_upgrades()
+
+    local surface = player.physical_surface
+    local pos = player.physical_position
+    set_companion_stats(player)
+
+    local entity = surface.create_entity{
+        name = "companion",
+        position = pos,
+        force = player.force
+    }
+    entity.insert("wood")
+    entity.color = player.color
+    local grid = entity.grid
+    grid.put{name = "companion-reactor-equipment"}
+    if not challenge_mode then
+        grid.put{name = "companion-defense-equipment"}
+        grid.put{name = "companion-defense-equipment"}
+        grid.put{name = "companion-roboport-mk2"}
+        grid.put{name = "companion-shield-mk2"}
+        player.set_shortcut_available("companion-attack-toggle", true)
+        player.set_shortcut_toggled("companion-attack-toggle", true)
+    else
+        grid.put{name = "companion-defense-equipment"}
+        grid.put{name = "companion-roboport-mk0"}
+        grid.put{name = "companion-shield-mk0"}
+        player.set_shortcut_available("companion-attack-toggle", true)
+        player.set_shortcut_toggled("companion-attack-toggle", false)
+    end
+    player.set_shortcut_available("companion-construction-toggle", true)
+    player.set_shortcut_toggled("companion-construction-toggle", true)
+    apply_researched_equipment_upgrades(player, grid)
+    converge_equipment_to_researched(player, grid)
+
+    Companion.new(entity, player)
+
+    game.print({"", "Reset and respawned companion (removed ", killed, ")."})
 end
 
 local function on_research_finished(event)
@@ -2215,6 +2401,7 @@ local function on_research_finished(event)
                     local grid = companion:get_grid()
                     if grid then
                         swap_equipment(grid, up.stat, up.value)
+                        converge_equipment_to_researched(player, grid)
                     end
                 end
                 ::continue_companion::
@@ -2361,7 +2548,7 @@ local function create_popup(player, message)
     name = "companion_popup_ok",
     caption = "OK"
   }
-  ok_button.style.width = 240
+  ok_button.style.width = 280
   ok_button.style.top_margin = 10
 end
 
@@ -2392,7 +2579,12 @@ local function show_update_popup()
 end
 
 local migrations = {
-	["3.0.0"] = show_update_popup
+    ["3.0.0"] = function()
+        for _, player in pairs(game.players) do
+            reset_companions_for_player(player)
+        end
+        show_update_popup()
+    end,
 }
 
 script.on_event(defines.events.on_gui_click, on_gui_click)
@@ -2419,7 +2611,11 @@ script.on_configuration_changed(function(e)
 
             if not player.is_shortcut_available("companion-attack-toggle") then
                 player.set_shortcut_available("companion-attack-toggle", true)
-                player.set_shortcut_toggled("companion-attack-toggle", true)
+                if challenge_mode then
+                    player.set_shortcut_toggled("companion-attack-toggle", false)
+                else
+                    player.set_shortcut_toggled("companion-attack-toggle", true)
+                end
             end
 
             if not player.is_shortcut_available("companion-construction-toggle") then
@@ -2613,7 +2809,9 @@ commands.add_command("full_test", "Combine the above four commands into one.", f
 end)
 ]]
 
-commands.add_command("debug_companion", "Debug companion state", function(cmd)
+commands.add_command("debug_companion", 
+"Debug companion state", 
+function(cmd)
     local player = game.get_player(cmd.player_index)
     if not player then return end
     local player_data = script_data.player_data[player.index]
@@ -2627,7 +2825,9 @@ commands.add_command("debug_companion", "Debug companion state", function(cmd)
     end
 end)
 
-commands.add_command("swap_equipment", "Takes any input equipment name and replaces it with output name. Takes two arguments.", function(cmd)
+commands.add_command("swap_equipment", 
+"Takes any input equipment name and replaces it with output name. Takes two arguments.", 
+function(cmd)
 	local errmsg = "Usage: /swap_equipment <old-equipment-literal-name> <new-equipment-literal-name>"
     local player = game.get_player(cmd.player_index)
     local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
@@ -2646,7 +2846,29 @@ commands.add_command("swap_equipment", "Takes any input equipment name and repla
 	swap_equipment(grid, input, output)
 end)
 
-commands.add_command("reset_companions", "Reset all companion drones as fully as possible.", function(cmd)
+commands.add_command("companion-reseed-defaults",
+"Refreshes companion stats in storage table.",
+function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if player then reseed_defaults(player) end
+end)
+
+commands.add_command("companion_speed_factor",
+"Set companion speed multiplier (>0). Decimals between 0 and 1 will slow the drone.",
+function(cmd)
+    local v = tonumber(cmd.parameter)
+    if v and v > 0 then
+        remote.call("companion_speed", "set_factor", v)
+        game.print({"", "[Companion] speed factor set to ", v})
+    else
+        local cur = remote.call("companion_speed", "get_factor")
+        game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
+    end
+end)
+--[[
+commands.add_command("reset_companions", 
+"Reset all companion drones as fully as possible.", 
+function(cmd)
     local player = game.get_player(cmd.player_index)
     if not player then return end
     local player_data = script_data.player_data[player.index]
@@ -2683,8 +2905,14 @@ commands.add_command("reset_companions", "Reset all companion drones as fully as
             count = count + 1
         end
     end
-
     game.print({"", "Reset ", count, " companions."})
+end)
+]]
+commands.add_command("reset_companions",
+"Fully reset your companion(s) to brand-new state.",
+function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if player then reset_companions_for_player(player) end
 end)
 
 script.on_event("companion-force-search", function(event)
@@ -2705,20 +2933,6 @@ script.on_event("companion-force-search", function(event)
         end
     end
 end)
-
-commands.add_command("companion_speed_factor",
-    "Set companion speed multiplier (>0). Decimals between 0 and 1 will slow the drone.",
-    function(cmd)
-        local v = tonumber(cmd.parameter)
-        if v and v > 0 then
-            remote.call("companion_speed", "set_factor", v)
-            game.print({"", "[Companion] speed factor set to ", v})
-        else
-            local cur = remote.call("companion_speed", "get_factor")
-            game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
-        end
-    end
-)
 
 remote.add_interface("companion_remote_for_jetpack", jetpack_remote)
 

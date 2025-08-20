@@ -1,10 +1,12 @@
 ---------------------------------------------------------------------------------------------------
 Version: 3.0.28
-Date: 2025-08-120
+Date: 2025-08-20
   Balance:
     - Adjusted challenge mode upgrade values, especially for speed and damage.
   Debug:
     - Added command for testing speed changes
+  Bugfixes:
+    - Drone should now stay "attached" to player through all save / loads.
 
 ---------------------------------------------------------------------------------------------------
 Version: 3.0.27
@@ -26,8 +28,8 @@ Version: 3.0.0
 Date: 2025-08-01
   Major Features:
     - Hard Mode: Make the companion kinda crappy to begin with, and expensive to craft,
-	  so you'd better take care of your one and only companion. It gets better over time
-	  as you research technologies, reaching peak strength at Space Science.
+      so you'd better take care of your one and only companion. It gets better over time
+      as you research technologies, reaching peak strength at Space Science.
     - Dialogue: The companion can speak now! It can say things when it finishes a job, when
       it kills an enemy, or just randomly when it's floating around doing nothing. Configurable.
   Minor Features:

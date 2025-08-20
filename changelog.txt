@@ -1,12 +1,18 @@
 ---------------------------------------------------------------------------------------------------
-Version: 3.0.26
-Date: 2025-08-13
+Version: 3.0.28
+Date: 2025-08-120
+  Balance:
+    - Adjusted challenge mode upgrade values, especially for speed and damage.
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.27
+Date: 2025-08-19
   Bugfixes:
     - Fixed map crashing due to absurdly large speed sticker
 
 ---------------------------------------------------------------------------------------------------
 Version: 3.0.26
-Date: 2025-08-13
+Date: 2025-08-18
   Bugfixes:
     - Three main bugs were the source of all 26 updates:
     - 1: Companion was extremely slow when doing jobs that were all in a line

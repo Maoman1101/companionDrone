@@ -4,6 +4,7 @@ storage.companion_update_interval = settings.startup["set-update-interval"].valu
 local follow_range = 12
 local sticker_life = 100
 if not storage then storage = storage or {} end
+storage.fuel_multiplier = 10 -- flat speed multiplier for tweaking balance
 storage.companion_speed_factor = storage.companion_speed_factor or 1.0
 storage.player_speed_factor = storage.player_speed_factor or {} 
 local lib = {}
@@ -11,14 +12,14 @@ local lib = {}
 --------------------------- Challenge Mode Stat Control ---------------------------
 
 if challenge_mode then 
-    storage.base_speed                   = 8
-    storage.attack_count                 = 1
-    storage.max_distance                 = 12
+    storage.base_speed                   = 0.01
+    storage.attack_count                 = 0
+    storage.max_distance                 = 8
     storage.max_companions               = 1 -- shitty values to start with in challenge mode
 else
-    storage.base_speed                   = 0.5
-    storage.attack_count                 = 4
-    storage.max_distance                 = 28
+    storage.base_speed                   = 1
+    storage.attack_count                 = 6
+    storage.max_distance                 = 25
     storage.max_companions               = 2 -- moderately good (but not best) values for non challenge mode players
 end
 
@@ -26,18 +27,18 @@ local function ensure_companion_upgrades()
     if not storage then storage = {} end
     if not storage.companion_upgrades then
         storage.companion_upgrades = {
-            ["electronics"]             = {{stat="base_speed",     value=5,    phrase="I can move a little easier now."}},
-            ["automobilism"]            = {{stat="base_speed",     value=2,    phrase="Engine boost activated."}},
-            ["robotics"]                = {{stat="base_speed",     value=0.5,  phrase="Now I can fly like those robots!"}},
-            ["rocket-fuel"]             = {{stat="base_speed",     value=0.2,  phrase="Rocket fuel: max speed!"}},
+            ["electronics"]             = {{stat="base_speed",     value=0.2,  phrase="I can move a little easier now."}},
+            ["automobilism"]            = {{stat="base_speed",     value=0.5,  phrase="Engine boost activated."}},
+            ["robotics"]                = {{stat="base_speed",     value=1,    phrase="Now I can fly like those robots!"}},
+            ["rocket-fuel"]             = {{stat="base_speed",     value=5,    phrase="Rocket fuel: max speed!"}},
             
-            ["military-2"]              = {{stat="attack_count",   value=1.5,  phrase="Upgraded weaponry."}},
-            ["laser-turret"]            = {{stat="attack_count",   value=2,    phrase="Laser system enhanced."}},
-            ["stronger-explosives-2"]   = {{stat="attack_count",   value=3,    phrase="Explosive weapons powered up."}},
-            ["energy-weapons-damage-3"] = {{stat="attack_count",   value=5,    phrase="Energy weapons at max."}},
+            ["military"]                = {{stat="attack_count",   value=1,    phrase="Rudimentary weapons systems online."}},
+            ["laser"]                   = {{stat="attack_count",   value=5,    phrase="Laser system repaired."}},
+            ["stronger-explosives-2"]   = {{stat="attack_count",   value=12,   phrase="Weapons systems powered up."}},
+            ["laser-weapons-damage-3"]  = {{stat="attack_count",   value=25,   phrase="Energy weapons at max."}},
             
-            ["logistics"]               = {{stat="max_distance",   value=16,   phrase="This will let me plan ahead better."}},
-            ["optics"]                  = {{stat="max_distance",   value=24,   phrase="I can see more clearly now."}},
+            ["logistics"]               = {{stat="max_distance",   value=12,   phrase="This will let me plan ahead better."}},
+            ["optics"]                  = {{stat="max_distance",   value=20,   phrase="I can see more clearly now."}},
             ["radar"]                   = {{stat="max_distance",   value=32,   phrase="Radar has extended my range to max."}},
             
             ["processing-unit"]         = {{stat="max_companions", value=2,    phrase="Your suit can handle a friend now!"}},
@@ -209,13 +210,6 @@ local get_secret_surface = function()
     return surface
 end
 
-local get_speed_boost = function(burner)
-  local burning = burner.currently_burning
-  if not burning then return 1 end
-  return burning.name.fuel_top_speed_multiplier * storage.base_speed
-end
-
-
 local rotate_vector = function(vector,    orientation)
     local x = vector[1] or vector.x
     local y = vector[2] or vector.y
@@ -379,6 +373,16 @@ local adjust_follow_behavior = function(player)
     end
 end
 
+local function eff_base()
+    return (storage.base_speed or 10) * (storage.companion_speed_factor or 1.0)
+end
+
+local get_speed_boost = function(burner)
+  local burning = burner.currently_burning
+  if not burning then return 1 end
+  return burning.name.fuel_top_speed_multiplier * storage.fuel_multiplier --* storage.base_speed
+end
+
 function Companion:can_spawn_robot()
     return table_size(self.robots or {}) < (storage.scripted_robot_limit or 20)
 end
@@ -417,7 +421,7 @@ function Companion:set_active()
     end
     list[self.unit_number] = true
     self.active = true
-    self:set_speed((storage.base_speed * 1.2) * get_speed_boost(self.entity.burner))
+    self:set_speed((eff_base() * 1.2) * get_speed_boost(self.entity.burner))
     adjust_follow_behavior(self.player)
 end
 
@@ -471,7 +475,7 @@ function Companion:get_speed_sticker()
         force = self.entity.force,
         position = self.entity.position
     }
-    self.speed_sticker.active = false
+    self.speed_sticker.active = true
     return self.speed_sticker
 end
 
@@ -483,18 +487,29 @@ function Companion:get_distance_boost(position)
 end
 
 function Companion:set_speed(speed)
-    if speed == self.speed then return end
+    local factor = storage.companion_speed_factor or 1.0
+
+    -- No early return: we must refresh TTL every call or boosts "decay".
     self.speed = speed
-    --self:say(speed)
-	if not storage.base_speed then storage.base_speed = 10 end
-    local ratio = speed/(storage.base_speed * get_speed_boost(self.entity.burner))
-    --self:say(ratio)
-    if ratio <= 1 then
-        ratio = 1
-    else
+    self._last_speed_factor = factor
+
+    if not storage.base_speed then storage.base_speed = 10 end
+    local denom = get_speed_boost(self.entity.burner)
+    local ratio = (speed * eff_base() * denom)
+
+    if ratio > 1 then
         local sticker = self:get_speed_sticker()
+        local ttl = 1 + ((sticker_life / 10) * ratio)
+        if ttl > math.huge then
+            ttl = 1000
+        end
+        sticker.time_to_live = ttl
+    else
+        -- when below baseline, collapse quickly so it can't “stick” high
+        if self.speed_sticker and self.speed_sticker.valid then
+            self.speed_sticker.time_to_live = 1
+        end
     end
-    --game.print(self.speed.." - "..self.entity.speed)
 end
 
 function Companion:get_speed()
@@ -852,7 +867,7 @@ function Companion:return_to_player()
         return
     end
 
-    self:set_speed(math.max(storage.base_speed * 1.2, get_player_speed(self.player, 1.2)))
+    self:set_speed(math.max(eff_base() * 1.2, get_player_speed(self.player, 1.2)))
 
     if self.player.character then
         self.entity.follow_target = self.player.character
@@ -2083,15 +2098,56 @@ local on_player_created = function(event)
 		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-roboport-mk2"}
 		grid.put{name = "companion-shield-mk2"}
+        player.set_shortcut_available("companion-attack-toggle", true)
+        player.set_shortcut_toggled("companion-attack-toggle", true)
 	else
+		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-roboport-mk0"}
 		grid.put{name = "companion-shield-mk0"}
+        player.set_shortcut_available("companion-attack-toggle", true)
+        player.set_shortcut_toggled("companion-attack-toggle", false)
 	end
-	player.set_shortcut_available("companion-attack-toggle", true)
-	player.set_shortcut_toggled("companion-attack-toggle", true)
 	player.set_shortcut_available("companion-construction-toggle", true)
 	player.set_shortcut_toggled("companion-construction-toggle", true)
 	local companion = Companion.new(entity, player)
+end
+
+local function purge_illegal_companion_bots(player)
+    if not (player and player.valid) then return end
+
+    -- Clear cursor if they somehow got one onto it
+    local cs = player.cursor_stack
+    if cs and cs.valid_for_read and cs.name == "companion-construction-robot" then
+        cs.clear()
+    end
+
+    -- Remove any that made it into inventory (shift/ctrl-click, etc.)
+    local removed = player.remove_item{name = "companion-construction-robot", count = 1000000}
+    if removed > 0 then
+        -- Optional: silently top the companion back up if the player had one open
+        -- Not strictly necessary because set_robot_stack() maintains slot 21,
+        -- but this makes the theft look “self-healing.”
+        local opened = player.opened
+        if opened and opened.valid and opened.name == "companion" then
+            local c = get_companion(opened.unit_number)
+            if c then c:set_robot_stack() end
+        end
+    end
+end
+
+local on_player_main_inventory_changed = function(event)
+    local player = game.get_player(event.player_index)
+    purge_illegal_companion_bots(player)
+end
+
+local on_player_fast_transferred = function(event)
+    local player = game.get_player(event.player_index)
+    purge_illegal_companion_bots(player)
+end
+
+local on_player_cursor_stack_changed = function(event)
+    local player = game.get_player(event.player_index)
+    purge_illegal_companion_bots(player)
 end
 
 local function swap_equipment(grid, input, output) -- equipment literal names as strings, matches any arbitrary names. 
@@ -2150,30 +2206,33 @@ end
 
 lib.events =
 {
-    [defines.events.on_built_entity] = on_built_entity,
-    [defines.events.on_object_destroyed] = on_entity_destroyed,
-    [defines.events.on_tick] = on_tick,
-    [defines.events.on_spider_command_completed] = on_spider_command_completed,
-    [defines.events.on_script_trigger_effect] = on_script_trigger_effect,
-    [defines.events.on_entity_settings_pasted] = on_entity_settings_pasted,
+    [defines.events.on_built_entity]                  = on_built_entity,
+    [defines.events.on_object_destroyed]              = on_entity_destroyed,
+    [defines.events.on_tick]                          = on_tick,
+    [defines.events.on_spider_command_completed]      = on_spider_command_completed,
+    [defines.events.on_script_trigger_effect]         = on_script_trigger_effect,
+    [defines.events.on_entity_settings_pasted]        = on_entity_settings_pasted,
 
-    [defines.events.on_player_placed_equipment] = on_player_placed_equipment,
-    [defines.events.on_player_removed_equipment] = on_player_removed_equipment,
+    [defines.events.on_player_placed_equipment]       = on_player_placed_equipment,
+    [defines.events.on_player_removed_equipment]      = on_player_removed_equipment,
+    [defines.events.on_player_main_inventory_changed] = on_player_main_inventory_changed,
+    [defines.events.on_player_fast_transferred]       = on_player_fast_transferred,
+    [defines.events.on_player_cursor_stack_changed]   = on_player_cursor_stack_changed,
 
-    [defines.events.on_player_changed_surface] = on_player_changed_surface,
-    [defines.events.on_player_left_game] = on_player_left_game,
-    [defines.events.on_player_joined_game] = on_player_joined_game,
-    [defines.events.on_player_created] = on_player_created,
-    [defines.events.on_player_changed_force] = on_player_changed_force,
-    [defines.events.on_player_driving_changed_state] = on_player_driving_changed_state,
+    [defines.events.on_player_changed_surface]        = on_player_changed_surface,
+    [defines.events.on_player_left_game]              = on_player_left_game,
+    [defines.events.on_player_joined_game]            = on_player_joined_game,
+    [defines.events.on_player_created]                = on_player_created,
+    [defines.events.on_player_changed_force]          = on_player_changed_force,
+    [defines.events.on_player_driving_changed_state]  = on_player_driving_changed_state,
     [defines.events.on_player_used_spidertron_remote] = on_player_used_spider_remote,
 
-    [defines.events.on_player_mined_entity] = on_player_mined_entity,
-    [defines.events.on_pre_player_mined_item] = on_pre_player_mined_item,
-    [defines.events.on_lua_shortcut] = on_lua_shortcut,
-    [defines.events.on_player_deconstructed_area] = on_player_deconstructed_area,
-    [defines.events.on_pre_build] = on_pre_build,
-	[defines.events.on_research_finished] = on_research_finished,
+    [defines.events.on_player_mined_entity]           = on_player_mined_entity,
+    [defines.events.on_pre_player_mined_item]         = on_pre_player_mined_item,
+    [defines.events.on_lua_shortcut]                  = on_lua_shortcut,
+    [defines.events.on_player_deconstructed_area]     = on_player_deconstructed_area,
+    [defines.events.on_pre_build]                     = on_pre_build,
+	[defines.events.on_research_finished]             = on_research_finished,
 }
 
 lib.on_load = function()
@@ -2450,6 +2509,35 @@ function Companion:debug_report_state(prefix)
     log(msg)
     self.player.print(msg)
 end
+
+remote.add_interface("companion_speed", {
+    set_factor = function(v)
+        if type(v) == "number" and v > 0 then
+            storage.companion_speed_factor = v
+            for _, comp in pairs(script_data.companions) do
+                if comp and comp.entity and comp.entity.valid then
+                    comp._last_speed_factor = nil
+                end
+            end
+        end
+    end,
+    get_factor = function() return storage.companion_speed_factor or 1.0 end,
+})
+
+commands.add_command("companion_speed_factor",
+    "Set companion speed factor (>0). Example: /companion_speed_factor 3",
+    function(cmd)
+        local v = tonumber(cmd.parameter)
+        if v and v > 0 then
+            remote.call("companion_speed", "set_factor", v)
+            game.print({"", "[Companion] speed factor set to ", v})
+        else
+            local cur = remote.call("companion_speed", "get_factor")
+            game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
+        end
+    end
+)
+
 
 --[[ Various debug commands, uncomment block for testing
 commands.add_command("check_grid", "(Debug) Search companion grid for shields or roboports", function(cmd)

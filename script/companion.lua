@@ -100,6 +100,15 @@ end
 
 --------------------------- Initialization ---------------------------
 
+local script_data =
+{
+    companions = {},
+    active_companions = {},
+    player_data = {},
+    search_schedule = {},
+    specific_job_search_queue = {}
+}
+
 local function bind_storage()
     if not storage.companion then
         storage.companion = script_data
@@ -120,15 +129,6 @@ lib.on_init = function()
     end
     bind_storage()
 end
-
-local script_data =
-{
-    companions = {},
-    active_companions = {},
-    player_data = {},
-    search_schedule = {},
-    specific_job_search_queue = {}
-}
 
 local repair_tools
 local get_repair_tools = function()
@@ -2159,7 +2159,7 @@ local function swap_equipment(grid, input, output) -- equipment literal names as
 	for _, equipment in pairs(grid.equipment) do -- find the position of each equipment
 		if equipment.name == input then 
 			table.insert(target_positions, equipment.position)
-		end
+		end 
 	end
 	for i = 1, #target_positions do -- remove "input" and replace with "output" equipment
 		grid.take{position = target_positions[i]}

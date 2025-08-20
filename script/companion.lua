@@ -378,9 +378,12 @@ local function eff_base()
 end
 
 local get_speed_boost = function(burner)
-  local burning = burner.currently_burning
-  if not burning then return 1 end
-  return burning.name.fuel_top_speed_multiplier * storage.fuel_multiplier --* storage.base_speed
+    local burning = burner.currently_burning
+    if not burning then return 1 end
+    if not storage.fuel_multiplier then 
+        storage.fuel_multiplier = storage.fuel_multipler or 0.001 
+    end
+    return burning.name.fuel_top_speed_multiplier * storage.fuel_multiplier --* storage.base_speed
 end
 
 function Companion:can_spawn_robot()
@@ -1591,7 +1594,7 @@ local on_tick = function(event)
     end
 end
 
---------------------------- End Core Logic ---------------------------
+--------------------------- Secondary Utilities ---------------------------
 
 local on_spider_command_completed = function(event)
     local spider = event.vehicle
@@ -2164,7 +2167,25 @@ local function swap_equipment(grid, input, output) -- equipment literal names as
 	end
 end
 
--- make sure swap_equipment is in scope (either defined above or forward-declared: local swap_equipment)
+function Companion:get_random_localised(key)
+    -- Looks in __root__/locale/en/locale.cfg and reads the first line in KEY, then uses that value as it's upper bounds for randomly picking between 1 and KEY. 
+	-- In the locale file, the first line should always be the exact number of lines in that section
+	-- too low (i.e. lines were added) won't do anything except not show the added lines but too high will just return the key itself
+    local count = storage.dialogue_counts and storage.dialogue_counts[key]
+    if not count then
+        local translated = self.player.request_translation({key .. ".0"})
+        count = tonumber(translated) or 1
+        storage.dialogue_counts = storage.dialogue_counts or {}
+        storage.dialogue_counts[key] = count
+    end
+    local index = math.random(1, count)
+    return {key .. "." .. index}
+end
+
+function Companion:say_random(key) 
+    -- this function used to do more than simply call that ^ function, just haven't bothered removing it from where it's spread
+    self:say(self:get_random_localised(key))
+end
 
 local function on_research_finished(event)
     if not challenge_mode or not event.research then return end
@@ -2433,7 +2454,7 @@ script.on_configuration_changed(function(e)
 	on_config_changed(e, migrations)
 end)
 
------------------------------------ End Migrations ------------------------------------
+----------------------------------- Remotes and Commands ------------------------------------
 
 local jetpack_remote =
 {
@@ -2445,26 +2466,6 @@ local jetpack_remote =
         end
     end
 }
-
-function Companion:get_random_localised(key)
-    -- Looks in __root__/locale/en/locale.cfg and reads the first line in KEY, then uses that value as it's upper bounds for randomly picking between 1 and KEY. 
-	-- In the locale file, the first line should always be the exact number of lines in that section
-	-- too low (i.e. lines were added) won't do anything except not show the added lines but too high will just return the key itself
-    local count = storage.dialogue_counts and storage.dialogue_counts[key]
-    if not count then
-        local translated = self.player.request_translation({key .. ".0"})
-        count = tonumber(translated) or 1
-        storage.dialogue_counts = storage.dialogue_counts or {}
-        storage.dialogue_counts[key] = count
-    end
-    local index = math.random(1, count)
-    return {key .. "." .. index}
-end
-
-function Companion:say_random(key) 
-    -- this function used to do more than simply call that ^ function, just haven't bothered removing it from where it's spread
-    self:say(self:get_random_localised(key))
-end
 
 script.on_event(defines.events.on_string_translated, function(event)
 	local key = event.localised_string[1]
@@ -2523,20 +2524,6 @@ remote.add_interface("companion_speed", {
     end,
     get_factor = function() return storage.companion_speed_factor or 1.0 end,
 })
-
-commands.add_command("companion_speed_factor",
-    "Set companion speed factor (>0). Example: /companion_speed_factor 3",
-    function(cmd)
-        local v = tonumber(cmd.parameter)
-        if v and v > 0 then
-            remote.call("companion_speed", "set_factor", v)
-            game.print({"", "[Companion] speed factor set to ", v})
-        else
-            local cur = remote.call("companion_speed", "get_factor")
-            game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
-        end
-    end
-)
 
 
 --[[ Various debug commands, uncomment block for testing
@@ -2718,6 +2705,20 @@ script.on_event("companion-force-search", function(event)
         end
     end
 end)
+
+commands.add_command("companion_speed_factor",
+    "Set companion speed multiplier (>0). Decimals between 0 and 1 will slow the drone.",
+    function(cmd)
+        local v = tonumber(cmd.parameter)
+        if v and v > 0 then
+            remote.call("companion_speed", "set_factor", v)
+            game.print({"", "[Companion] speed factor set to ", v})
+        else
+            local cur = remote.call("companion_speed", "get_factor")
+            game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
+        end
+    end
+)
 
 remote.add_interface("companion_remote_for_jetpack", jetpack_remote)
 

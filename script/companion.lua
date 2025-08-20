@@ -2249,6 +2249,7 @@ local function converge_equipment_to_researched(player, grid)
                 -- same style as on_research_finished:
                 if swap_equipment(grid, up.stat, up.value) then
                     changed = true
+                    self:say("I can't use that equipment upgrade just yet.")
                 end
             end
         end

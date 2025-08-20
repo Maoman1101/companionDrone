@@ -7,6 +7,8 @@ Date: 2025-08-20
     - Added command for testing speed changes
   Bugfixes:
     - Drone should now stay "attached" to player through all save / loads.
+  Migrations:
+    - Implemented new migrations checks for companion equipment
 
 ---------------------------------------------------------------------------------------------------
 Version: 3.0.27

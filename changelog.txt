@@ -3,6 +3,8 @@ Version: 3.0.28
 Date: 2025-08-120
   Balance:
     - Adjusted challenge mode upgrade values, especially for speed and damage.
+  Debug:
+    - Added command for testing speed changes
 
 ---------------------------------------------------------------------------------------------------
 Version: 3.0.27

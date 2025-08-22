@@ -3,6 +3,7 @@ local challenge_mode = settings.startup["set-challenge-mode"].value
 local follow_range = 12
 local sticker_life = 1
 local lib = {}
+local debug_on = true
 
 --------------------------- Challenge Mode Stat Control ---------------------------
 
@@ -15,12 +16,12 @@ local function set_defaults()
     if challenge_mode then 
         storage.base_speed                   = 0.5
         storage.attack_count                 = 0
-        storage.max_distance                 = 8
+        storage.max_distance                 = 24
         storage.max_companions               = 1 -- shitty values to start with in challenge mode
     else
         storage.base_speed                   = 1
         storage.attack_count                 = 6
-        storage.max_distance                 = 25
+        storage.max_distance                 = 100
         storage.max_companions               = 2 -- moderately good (but not best) values for non challenge mode players
     end
 end
@@ -40,42 +41,42 @@ local function ensure_companion_upgrades()
             ["stronger-explosives-2"]   = {{stat="attack_count",   value=7,    phrase="Weapons systems powered up."}},
             ["laser-weapons-damage-3"]  = {{stat="attack_count",   value=12,   phrase="Energy weapons at max."}},
             
-            ["logistics"]               = {{stat="max_distance",   value=12,   phrase="This will let me plan ahead better."}},
-            ["optics"]                  = {{stat="max_distance",   value=20,   phrase="I can see more clearly now."}},
-            ["radar"]                   = {{stat="max_distance",   value=32,   phrase="Radar has extended my range to max."}},
+            ["logistics"]               = {{stat="max_distance",   value=48,   phrase="This will let me plan ahead better."}},
+            ["optics"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
+            ["radar"]                   = {{stat="max_distance",   value=128,   phrase="Radar has extended my range to max."}},
             
             ["processing-unit"]         = {{stat="max_companions", value=2,    phrase="Your suit can handle a friend now!"}},
             ["power-armor-mk2"]         = {{stat="max_companions", value=10,   phrase="Your suit's fully upgraded: time to roll out the squad."}},
 
             -- SHIELD UPGRADES
-            ["energy-shield-equipment"]   = {{
+            ["energy-shield-equipment"] = {{
                 stat="companion-shield-mk0", 
                 value="companion-shield-mk1", 
                 phrase="Shield partially repaired."
             }},
-            ["energy-shield-mk2-equipment"]= {{
+            ["energy-shield-mk2-equipment"] = {{
                 stat="companion-shield-mk1", 
                 value="companion-shield-mk2", 
                 phrase="Additional shields online."
             }},
-            ["fusion-reactor-equipment"]  = {{
+            ["fusion-reactor-equipment"] = {{
                 stat="companion-shield-mk2", 
                 value="companion-shield-mk3", 
                 phrase="Shields fully operational."
             }},
 
             -- ROBO PORT UPGRADES
-            ["construction-robotics"]     = {{
+            ["logistics-science-pack"] = {{
                 stat="companion-roboport-mk0", 
                 value="companion-roboport-mk1", 
                 phrase="Roboport partially repaired."
             }},
-            ["logistic-robotics"]         = {{
+            ["construction-robotics"] = {{
                 stat="companion-roboport-mk1", 
                 value="companion-roboport-mk2", 
                 phrase="Roboport upgrade online."
             }},
-            ["utility-science-pack"]      = {{
+            ["logistic-robotics"] = {{
                 stat="companion-roboport-mk2", 
                 value="companion-roboport-mk3", 
                 phrase="Roboport fully operational."
@@ -252,12 +253,11 @@ Companion.new = function(entity, player)
             last_attack_search_offset = 0
         }
         script_data.player_data[player.index] = player_data
-        if challenge_mode then
-            player.set_shortcut_available("companion-attack-toggle", false)
-        else
-            player.set_shortcut_available("companion-attack-toggle", true)
-        end
         player.set_shortcut_available("companion-construction-toggle", true)
+        player.set_shortcut_available("companion-attack-toggle", true)
+        if challenge_mode then
+            player.set_shortcut_toggled("companion-attack-toggle", false)
+        end
     end
 
     local count = 0
@@ -329,7 +329,6 @@ local adjust_follow_behavior = function(player)
     end
 
     if count == 0 then return end
-
     local reach = player.reach_distance - 2
     local length = math.min(5 + (count * 0.33), reach)
     if count == 1 then length = 2 end
@@ -355,25 +354,14 @@ local adjust_follow_behavior = function(player)
         follow_offset.x = follow_offset.x + shift.x
         follow_offset.y = follow_offset.y + shift.y
         local target = companion.entity.follow_target
-        --[[if not (target and target.valid) then
-            if player.character then
-                companion.entity.follow_target = player.character
-            else
-                companion.entity.autopilot_destination = {position.x + follow_offset.x, position.y + follow_offset.y}
-            end
-        end]]
-        if companion:is_busy() then
-            -- Job/combat in progress: let autopilot steer (robot centroid, job dest).
-            -- Prevent follow from overriding movement.
-            if target then companion.entity.follow_target = nil end
-        elseif not (target and target.valid) then
+        if not (target and target.valid) then
             if player.character then
                 companion.entity.follow_target = player.character
             else
                 companion.entity.autopilot_destination = {position.x + follow_offset.x, position.y + follow_offset.y}
             end
         end
-        -- if it's stupid but it works...
+        -- idiotic solution but if it works ... is it really idiotic?
         if follow_offset and follow_offset.x and follow_offset.y and follow_offset.x <= 10000 and follow_offset.y <= 10000 then
             companion.entity.follow_offset = follow_offset
         end
@@ -388,16 +376,7 @@ local function eff_base()
     end
     return (storage.base_speed) * (storage.companion_speed_factor)
 end
---[[
-local get_speed_boost = function(burner)
-    local burning = burner.currently_burning
-    if not burning then return 1 end
-    if not storage.fuel_multiplier then 
-        storage.fuel_multiplier = storage.fuel_multipler
-    end
-    return burning.name.fuel_top_speed_multiplier * storage.fuel_multiplier --* storage.base_speed
-end
-]]
+
 local get_speed_boost = function(burner)
     local burning = burner and burner.currently_burning
     if not burning then return 1 end
@@ -406,7 +385,7 @@ local get_speed_boost = function(burner)
 end
 
 function Companion:can_spawn_robot()
-    return table_size(self.robots or {}) < (storage.scripted_robot_limit or 20)
+    return table_size(self.robots or {}) < (storage.scripted_robot_limit or 69)
 end
 
 function Companion:set_robot_stack()
@@ -462,7 +441,7 @@ function Companion:clear_active()
     local mod = self.unit_number % storage.companion_update_interval
     local list = script_data.active_companions[mod]
     if not list then
-        error("companion 421")
+        error("companion clear_active()")
         return
     end
     list[self.unit_number] = nil
@@ -518,7 +497,7 @@ function Companion:set_speed(speed)
     if ratio > 1 then
         local sticker = self:get_speed_sticker()
         local ttl = 1 + (((sticker_life / 10) * ratio) * 1000)
-        if ttl > math.huge then
+        if ttl > math.huge then -- prevents mystery integer overflow errors
             ttl = 100000000
         end
         sticker.time_to_live = ttl
@@ -586,7 +565,7 @@ function Companion:check_equipment()
 
     self.can_attack = false
     for k, equipment in pairs (grid.equipment) do
-        if equipment.type == "active-defense-equipment" then
+        if equipment.type == "companion-defense-equipment" then
             self.can_attack = true
             break
         end
@@ -594,21 +573,19 @@ function Companion:check_equipment()
 end
 
 function Companion:robot_spawned(robot)
-    if not self:can_spawn_robot() then return end
     self:set_active()
-	self.robots[robot.unit_number] = { entity = robot, beam = nil }
-	robot.destructible = false
-	robot.minable = false
-
-	local beam = self.entity.surface.create_entity{
-		name = "inserter-beam",
-		position = self.entity.position,
-		target = robot,
-		source = self.entity,
-		force = self.entity.force,
-		source_offset = {0, 0}
-	}
-	self.robots[robot.unit_number].beam = beam
+    self.robots[robot.unit_number] = robot
+    robot.destructible = false
+    robot.minable = false
+    self.entity.surface.create_entity
+    {
+        name = "inserter-beam",
+        position = self.entity.position,
+        target = robot,
+        source = self.entity,
+        force = self.entity.force,
+        source_offset = {0, 0}
+    }
     self:move_to_robot_average()
 end
 
@@ -631,56 +608,27 @@ function Companion:clear_robots()
 end
 
 function Companion:move_to_robot_average()
-    if not next(self.robots) then return false end
-
-    local position = {x = 0, y = 0}
-    local count = 0
-    for k, robot in pairs(self.robots) do
-        local r = robot.entity or robot
-        if r and r.valid then
-            local p = r.position
-            position.x = position.x + p.x
-            position.y = position.y + p.y
-            count = count + 1
-        else
-            self.robots[k] = nil
-        end
+  if not next(self.robots) then return end
+  local position = {x = 0, y = 0}
+  local our_position = self.entity.position
+  local count = 0
+  for k, robot in pairs (self.robots) do
+    if robot.valid then
+      local robot_position = robot.position
+      position.x = position.x + robot_position.x
+      position.y = position.y + robot_position.y
+      count = count + 1
+    else
+      self.robots[k] = nil
     end
-
-    if count == 0 then
-        self.entity.autopilot_destination = nil
-        self.last_robot_count = 0
-        return false
-    end
-
-    position.x = position.x / count
-    position.y = position.y / count
-
-    -- verify sane values
-    if position.x ~= position.x or position.y ~= position.y then return false end
-    if position.x == math.huge or position.x == -math.huge then return false end
-    if position.y == math.huge or position.y == -math.huge then return false end
-
-    self.entity.autopilot_destination = position
-    
-    if not self.last_robot_count then self.last_robot_count = 0 end
-    if self.last_robot_count > count
-       and self.can_construct
-       and self:player_wants_construction()
-       and self.entity.surface == self.player.physical_surface
-       and not self.out_of_energy then
-        self:search_for_nearby_work()
-    end
-    self.last_robot_count = count
-
-    if count == 0 then
-        self.entity.autopilot_destination = nil
-        self.moving_to_destination = nil
-        self.last_robot_count = 0
-        return false
-    end
-
-    return true
+  end
+  if count == 0 then
+    return
+  end
+  position.x = ((position.x / count))-- + our_position.x) / 2
+  position.y = ((position.y / count))-- + our_position.y) / 2
+  self.entity.autopilot_destination = position
+  return true
 end
 
 function Companion:try_to_refuel()
@@ -737,13 +685,22 @@ end
 
 function Companion:say(text)
 	if not settings.startup["companion-voice-lines"].value then return end -- don't speak if the player disabled the setting
-    if (game.tick - (self.last_spoken_tick or 0)) <= 30 then return end -- never speak more than twice per second
+    local tick_value = 0
+    local live_value = 0
+    if debug_on then 
+        tick_value = 1 
+        live_value = 30 
+    else 
+        tick_value = 30 
+        live_value = 240 
+    end
+    if (game.tick - (self.last_spoken_tick or 0)) <= tick_value then return end -- don't speak more than twice per second unless debugging
     self.last_spoken_tick = game.tick
     self.player.create_local_flying_text{
         position = {x = self.entity.position.x, y = self.entity.position.y - 2.5},
         text = text or "??",
         color = {r = 0.4, g = 0.8, b = 1},
-		time_to_live = 240,
+		time_to_live = live_value,
 		speed = 0.5
     }
 end
@@ -755,9 +712,10 @@ function Companion:on_destroyed()
     end
 
 	for k, robot in pairs(self.robots) do
-		local r = robot.entity or robot
-		if r and r.valid then r.destroy() end
-		if robot.beam and robot.beam.valid then robot.beam.destroy() end
+		local r = robot
+		if r and r.valid then 
+            r.destroy() 
+        end
 	end
 
     script_data.companions[self.unit_number] = nil
@@ -884,13 +842,12 @@ function Companion:return_to_player()
         return
     end
 
-    self:set_speed(math.max(eff_base() * 1.2, get_player_speed(self.player, 1.2)))
+    self:set_speed(math.max(eff_base() * 0.8, get_player_speed(self.player, 0.8)))
 
     if self.player.character then
         self.entity.follow_target = self.player.character
         return
     end
-
     self.entity.autopilot_destination = self.player.physical_position
 end
 
@@ -958,7 +915,7 @@ function Companion:get_offset(target_position, length, angle_adjustment)
         angle = angle + (math.pi / 2) + (angle_adjustment or 0)
         local x1 = (length * math.sin(angle))
         local y1 = (-length * math.cos(angle))
-        return {x1, y1}
+        return {x1 / 10, y1 / 10}
 end
 
 function Companion:set_attack_destination(position)
@@ -980,7 +937,7 @@ end
 
 function Companion:set_job_destination(position)
     local self_position = self.entity.position
-    local distance = self:distance(position) - 5
+    local distance = self:distance(position)
 
     if math.abs(distance) > 2 then
         local offset = self:get_offset(position, distance)
@@ -1227,21 +1184,9 @@ function Companion:update()
     local was_in_combat = self.is_in_combat
 
     self:update_state_flags()
-    --[[
-    if not self:is_idle() then
-        self.next_idle_line_tick = nil
-        self.test_idle_tick = nil
-        self.test_idle_fired = nil
-    end]]
 
 	if was_busy and not self.is_busy_for_construction then
-		if self.can_construct then
-			self:search_for_nearby_work()
-		end
-		if not self.is_busy_for_construction then
-			self.job_done_tick = game.tick
-			self.job_done_announced = false
-		end
+        self:search_for_nearby_work()
 	end
 
     if was_in_combat and not self.is_in_combat then
@@ -1250,13 +1195,22 @@ function Companion:update()
 		end
         self:search_for_nearby_targets()
     end
-	
+    
 	if not self:is_busy() and not self.out_of_energy and self.can_construct then
 		self:search_for_nearby_work()
 	end
 
-    if self.is_getting_full or self.is_on_low_health or not self:is_busy() then
+    if self.is_busy_for_construction
+    and not self.moving_to_destination
+    and not self.out_of_energy
+    and self.can_construct then
+        self:search_for_nearby_work()
+    end
+    
+    if self.is_on_low_health then
         self.moving_to_destination = nil
+        self:return_to_player()
+    elseif (self.is_getting_full or not self:is_busy()) and not self.moving_to_destination then
         self:return_to_player()
     end
 	local delay = settings.get_player_settings(self.player)["companion-idle-chatter-delay"].value
@@ -1271,7 +1225,7 @@ function Companion:try_to_find_work(search_area)
 
     local current_items = self:get_inventory().get_contents()
     local can_take_from_player = self:distance(self.player.physical_position) <= follow_range and self.entity.surface == self.player.physical_surface
-
+    --[[
     local has_or_can_take = function(item)
 		if (current_items[item.name] or 0) >= item.count then
             return true
@@ -1279,7 +1233,19 @@ function Companion:try_to_find_work(search_area)
         if not can_take_from_player then return end
         return self:find_and_take_from_player(item)
     end
-
+]]
+    local has_or_can_take = function(item)
+        local have = current_items[item.name] or 0
+        if have >= item.count then return true end
+        if not can_take_from_player then return end
+        local mult = storage.construction_pull_multiplier or 10
+        local want = item.count * mult
+        local need = math.max(0, want - have)
+        if need == 0 then return true end
+        local req = {name = item.name, count = need, quality = item.quality}
+        return self:find_and_take_from_player(req)
+    end
+    
     local attempted_ghost_names = {}
     local attempted_upgrade_names = {}
     local attempted_proxy_items = {}
@@ -1491,7 +1457,6 @@ local process_specific_job_queue = function(player_index, player_data)
 
     --free_companion:say(i)
     --free_companion.entity.surface.create_entity{name = "flying-text", position = area[1], text = i}
-    --free_companion.entity.surface.create_entity{name = "flying-text", position = area[2], text = i}
 	if not storage.max_distance then storage.max_distance = 250 end
     if free_companion:distance(area[1]) < storage.max_distance then
         free_companion:try_to_find_work(area)
@@ -1599,9 +1564,9 @@ end
 
 local on_tick = function(event)
     update_active_companions(event) -- must run every tick
-    check_follow_update(event)
 	if event.tick % storage.companion_update_interval == 0 then 
     -- by default runs every 5 ticks, user configurable
+        check_follow_update(event)
         check_and_restore_construction_bots()
 		check_job_search(event)
         check_inactive_idle_chatter(event)
@@ -2239,17 +2204,14 @@ local function converge_equipment_to_researched(player, grid)
     ensure_companion_upgrades()
     local techs = player.force.technologies
 
-    -- bounded fixpoint: apply researched swaps repeatedly to cover mk0?…?mkN and fusion tails
-    for _ = 1, 8 do  -- chain depth << 8; safe upper bound
+    for _ = 1, 3 do 
         local changed = false
         for tech, entries in pairs(storage.companion_upgrades or {}) do
             local t = techs[tech]
             local up = entries and entries[1]
             if t and t.researched and up and type(up.value) == "string" then
-                -- same style as on_research_finished:
                 if swap_equipment(grid, up.stat, up.value) then
                     changed = true
-                    self:say("I can't use that equipment upgrade just yet.")
                 end
             end
         end
@@ -2290,16 +2252,12 @@ local function reset_companions_for_player(player)
             companion.next_idle_line_tick = nil
             companion.test_idle_tick = nil
             companion.test_idle_fired = nil
-            -- Restore companion settings
             companion:clear_speed_sticker()
             companion:check_equipment()
             companion:try_to_refuel()
             companion:set_active()
-            -- Update stats based on mod settings and research
             set_companion_stats(player)
-            -- Force-follow update
             adjust_follow_behavior(player)
-            -- Print state for debug
             companion:debug_report_state("RESET")
             count = count + 1
         end
@@ -2323,24 +2281,18 @@ local function reset_companions_for_player(player)
         end
     end
 
-    -- wipe per-player companion data
     script_data.specific_job_search_queue[player.index] = nil
     script_data.player_data[player.index] = nil
-
-    -- wipe shortcuts
     player.set_shortcut_available("companion-attack-toggle", false)
     player.set_shortcut_available("companion-construction-toggle", false)
     player.set_shortcut_toggled("companion-attack-toggle", false)
     player.set_shortcut_toggled("companion-construction-toggle", false)
-
-    -- respawn fresh companion
     set_defaults()
     ensure_companion_upgrades()
-
+    
     local surface = player.physical_surface
     local pos = player.physical_position
     set_companion_stats(player)
-
     local entity = surface.create_entity{
         name = "companion",
         position = pos,
@@ -2370,7 +2322,6 @@ local function reset_companions_for_player(player)
     converge_equipment_to_researched(player, grid)
 
     Companion.new(entity, player)
-
     game.print({"", "Reset and respawned companion (removed ", killed, ")."})
 end
 
@@ -2847,7 +2798,7 @@ function(cmd)
 	swap_equipment(grid, input, output)
 end)
 
-commands.add_command("companion-reseed-defaults",
+commands.add_command("companion_reseed_defaults",
 "Refreshes companion stats in storage table.",
 function(cmd)
     local player = game.get_player(cmd.player_index)

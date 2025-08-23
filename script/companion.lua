@@ -1,7 +1,9 @@
 local util = require("util")
 local challenge_mode = settings.startup["set-challenge-mode"].value
 local follow_range = 12
+local abandon_job_distance = 80
 local sticker_life = 1
+local dist_bonus = 5
 local lib = {}
 local debug_on = true
 
@@ -43,7 +45,7 @@ local function ensure_companion_upgrades()
             
             ["logistics"]               = {{stat="max_distance",   value=48,   phrase="This will let me plan ahead better."}},
             ["optics"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
-            ["radar"]                   = {{stat="max_distance",   value=128,   phrase="Radar has extended my range to max."}},
+            ["radar"]                   = {{stat="max_distance",   value=128,  phrase="Radar has extended my range to max."}},
             
             ["processing-unit"]         = {{stat="max_companions", value=2,    phrase="Your suit can handle a friend now!"}},
             ["power-armor-mk2"]         = {{stat="max_companions", value=10,   phrase="Your suit's fully upgraded: time to roll out the squad."}},
@@ -588,7 +590,7 @@ function Companion:robot_spawned(robot)
     }
     self:move_to_robot_average()
 end
-
+--[[
 function Companion:clear_robots()
     for k, robot in pairs (self.robots) do
 		local r = robot.entity or robot
@@ -603,6 +605,30 @@ function Companion:clear_robots()
 			robot.beam.destroy()
 		end
 		self.robots[k] = nil
+    end
+    self:clear_robot_stack()
+end
+]]
+function Companion:clear_robots()
+    for k, robot in pairs(self.robots) do
+        local r = robot
+        if r and r.valid then
+            local ok = pcall(function()
+                r.mine{
+                    inventory      = self:get_inventory(),
+                    force          = true,
+                    ignore_minable = true
+                }
+            end)
+            if not ok and r.valid then
+                r.destroy()
+            end
+        end
+        local beam_ok, beam = pcall(function() return robot.beam end)
+        if beam_ok and beam and beam.valid then
+            beam.destroy()
+        end
+        self.robots[k] = nil
     end
     self:clear_robot_stack()
 end
@@ -674,8 +700,8 @@ function Companion:search_for_nearby_targets()
 end
 
 function Companion:is_idle()
-    -- is the companion currently working or fighting?
-    return not self.is_in_combat and not self.is_busy_for_construction
+    -- is the companion currently working?
+    return not self.is_busy_for_construction
 end
 
 function Companion:is_busy()
@@ -820,7 +846,7 @@ end
 function Companion:return_to_player()
 
     if not self.player.valid then return end
-
+    if self.is_busy_for_construction then return end
     if self.player.physical_surface ~= self.entity.surface then
         return
     end
@@ -850,7 +876,7 @@ function Companion:return_to_player()
     end
     self.entity.autopilot_destination = self.player.physical_position
 end
-
+--[[
 function Companion:on_spider_command_completed()
     self.moving_to_destination = nil
     local distance = self:distance(self.player.physical_position)
@@ -859,7 +885,6 @@ function Companion:on_spider_command_completed()
     end
 end
 
-	
 function Companion:take_item(item, target)
     local target_inventory = get_inventory(target)
 
@@ -888,7 +913,61 @@ function Companion:take_item(item, target)
         target_position = target.position,
         force = self.entity.force,
         position = self.entity.position,
-        duration = 30,
+        duration = math.min(math.max(math.ceil(item.count / 5), 10), 60),
+        max_length = follow_range + 4
+    }
+
+    return item.count <= 0
+end
+]]
+function Companion:take_item(item, target)
+    local target_inventory = get_inventory(target)
+    if not target_inventory then return end
+
+    while true do
+        local stack = target_inventory.find_item_stack({ name = item.name, quality = item.quality })
+        if not stack then break end
+
+        local given = self.entity.insert(stack)
+        if given == 0 then break end
+        if given == stack.count then
+            stack.clear()
+        else
+            stack.count = stack.count - given
+        end
+        item.count = item.count - given
+        if item.count <= 0 then break end
+    end
+
+    if item.count <= 0 then
+        local extra_stacks = 2 -- how much extra material the companion grabs in anticipation of more work
+        local stack_size = (prototypes.item[item.name] and prototypes.item[item.name].stack_size) or 100
+        local extra_to_take = extra_stacks * stack_size
+        local taken_extra = 0
+
+        while taken_extra < extra_to_take do
+            local stack = target_inventory.find_item_stack({ name = item.name, quality = item.quality })
+            if not stack then break end
+            local given = self.entity.insert(stack)
+            if given == 0 then break end
+            if given == stack.count then
+                stack.clear()
+            else
+                stack.count = stack.count - given
+            end
+            taken_extra = taken_extra + given
+        end
+    end
+
+    self.entity.surface.create_entity{
+        name = "inserter-beam",
+        source = self.entity,
+        target = (target.is_player() and target.character) or nil,
+        target_position = target.position,
+        force = self.entity.force,
+        position = self.entity.position,
+        -- beam duration still reflects the *requested* remainder, not the bonus scoop
+        duration = math.min(math.max(math.ceil(item.count / 5), 10), 60),
         max_length = follow_range + 4
     }
 
@@ -920,7 +999,7 @@ end
 
 function Companion:set_attack_destination(position)
     local self_position = self.entity.position
-    local distance = self:distance(position)
+    local distance = self:distance(position) + dist_bonus
 
     if math.abs(distance) > 2 then
         local offset = self:get_offset(position, distance, (distance < 0 and math.pi/4) or 0)
@@ -937,7 +1016,8 @@ end
 
 function Companion:set_job_destination(position)
     local self_position = self.entity.position
-    local distance = self:distance(position)
+    local distance = self:distance(position) + dist_bonus
+    self.current_job_target = position
 
     if math.abs(distance) > 2 then
         local offset = self:get_offset(position, distance)
@@ -1175,47 +1255,68 @@ end
 --------------------------- Core Logic ---------------------------
 
 function Companion:update()
-    --self:debug_report_state("Companion:update")
     if self.flagged_for_equipment_changed then
         self:check_equipment()
+    end
+    
+    do
+        local pos = self.entity.position
+        if self.moving_to_destination then
+            local lp = self._last_auto_pos or pos
+            if (math.abs(pos.x - lp.x) + math.abs(pos.y - lp.y)) < 0.05 then
+                self._stalled_ticks = (self._stalled_ticks or 0) + 1
+            else
+                self._stalled_ticks = 0
+            end
+            self._last_auto_pos = pos
+            if (self._stalled_ticks or 0) > 120 then
+                self.moving_to_destination = nil
+                self.entity.autopilot_destination = nil
+            end
+        else
+            self._stalled_ticks = 0
+            self._last_auto_pos = pos
+        end
     end
 
     local was_busy = self.is_busy_for_construction
     local was_in_combat = self.is_in_combat
 
     self:update_state_flags()
-
-	if was_busy and not self.is_busy_for_construction then
+    
+    if self.current_job_target then 
+    -- if the player is too far from the job, ignore it and follow player
+        local p = self.player.physical_position
+        local t = self.current_job_target
+        local tx = t[1] or t.x
+        local ty = t[2] or t.y
+        local dx = p.x - tx
+        local dy = p.y - ty
+        local d = (dx * dx + dy * dy) ^ 0.5
+        if d > abandon_job_distance then
+            self.moving_to_destination = nil
+            self.current_job_target = nil
+            self.entity.autopilot_destination = nil
+            self:clear_robots()
+            self:return_to_player()
+            return
+        end
+    end
+    
+    if was_busy and not self.is_busy_for_construction then
+        --So we were building, and now we are finished, lets try to find some work nearby
         self:search_for_nearby_work()
-	end
+    end
 
     if was_in_combat and not self.is_in_combat then
-		if math.random(1,20) > 15 then
-			self:say_random("search-for-nearby-targets-line")
-		end
+        --Same as above
         self:search_for_nearby_targets()
     end
-    
-	if not self:is_busy() and not self.out_of_energy and self.can_construct then
-		self:search_for_nearby_work()
-	end
 
-    if self.is_busy_for_construction
-    and not self.moving_to_destination
-    and not self.out_of_energy
-    and self.can_construct then
-        self:search_for_nearby_work()
-    end
-    
-    if self.is_on_low_health then
+    if self.is_getting_full or self.is_on_low_health or not self:is_busy() then
         self.moving_to_destination = nil
         self:return_to_player()
-    elseif (self.is_getting_full or not self:is_busy()) and not self.moving_to_destination then
-        self:return_to_player()
     end
-	local delay = settings.get_player_settings(self.player)["companion-idle-chatter-delay"].value
-	local minimum = math.max(1, math.floor(delay * 0.1))
-	local maximum = math.ceil(delay)
 end
 
 function Companion:try_to_find_work(search_area)
@@ -1355,11 +1456,6 @@ function Companion:try_to_find_work(search_area)
         end
     end
 
-    if self.moving_to_destination then
-        --We have a job.
-        return
-    end
-
     local attempted_cliff_names = {}
     local neutral_entities = self.entity.surface.find_entities_filtered{area = search_area, force = "neutral", to_be_deconstructed = true}
     for k, entity in pairs (neutral_entities) do
@@ -1381,6 +1477,11 @@ function Companion:try_to_find_work(search_area)
 				end
             end
         end
+    end
+
+    if self.moving_to_destination then
+        --We have a job.
+        return
     end
 end
 
@@ -1581,6 +1682,58 @@ local on_spider_command_completed = function(event)
     if not companion then return end
     companion:on_spider_command_completed()
 end
+--[[
+function Companion:on_spider_command_completed()
+    local distance = self:distance(self.player.physical_position)
+    if distance > follow_range then
+        self.moving_to_destination = nil
+        self:return_to_player()
+        return
+    end
+    if self.current_job_target and not next(self.robots)
+       and self:player_wants_construction() and self.can_construct then
+        self:set_job_destination(self.current_job_target)
+        return
+    end
+    self.moving_to_destination = nil
+    if not self.is_busy_for_construction and distance <= follow_range then
+        self:try_to_shove_inventory()
+    end
+end
+]]
+function Companion:on_spider_command_completed()
+    -- If the player has moved far from the job target, abort and follow.
+    local t = self.current_job_target
+    if t then
+        local p = self.player.physical_position
+        local tx = t[1] or t.x
+        local ty = t[2] or t.y
+        local dx = p.x - tx
+        local dy = p.y - ty
+        local d = (dx * dx + dy * dy) ^ 0.5
+        if d > abandon_job_distance then
+            self.moving_to_destination = nil
+            self.current_job_target = nil
+            self.entity.autopilot_destination = nil
+            self:clear_robots()
+            self:return_to_player()   -- NOTE: fixed colon call
+            return
+        end
+    end
+
+    self.moving_to_destination = nil
+
+    local distance = self:distance(self.player.physical_position)
+    if not self.is_busy_for_construction and distance <= follow_range then
+        self:try_to_shove_inventory()
+    end
+
+    if self.current_job_target and not next(self.robots)
+       and self:player_wants_construction() and self.can_construct then
+        self:set_job_destination(self.current_job_target)
+        return
+    end
+end
 
 local companion_attack_trigger = function(event)
 
@@ -1599,7 +1752,7 @@ local companion_attack_trigger = function(event)
         companion:attack(target_entity, storage.attack_count)
     end
 end
---[[
+
 local companion_robot_spawned_trigger = function(event)
 
     local source_entity = event.source_entity
@@ -1616,8 +1769,8 @@ local companion_robot_spawned_trigger = function(event)
     if companion then
         companion:robot_spawned(source_entity)
     end
-end]]
-
+end
+--[[
 local function companion_robot_spawned_trigger(event)
     local robot = event.source_entity
     if not (robot and robot.valid) then return end
@@ -1659,7 +1812,7 @@ local function companion_robot_spawned_trigger(event)
         companion:robot_spawned(robot)
     end
 end
-
+]]
 
 --[[effect_id :: string: The effect_id specified in the trigger effect.
 surface_index :: uint: The surface the effect happened on.

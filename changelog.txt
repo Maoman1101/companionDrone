@@ -6,7 +6,9 @@ Date: 2025-08-20
   Debug:
     - Added command for testing speed changes
   Bugfixes:
-    - Drone should now stay "attached" to player through all save / loads.
+    - Companion should now stay "attached" to player through all save / loads.
+    - Companion should no longer freeze when deconstruction jobs are out of range
+    - Companion no longer bounces back and forth when construction jobs are out of range
   Migrations:
     - Implemented new migrations checks for companion equipment
 

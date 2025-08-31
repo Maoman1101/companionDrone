@@ -1474,12 +1474,12 @@ function Companion:try_to_find_work(search_area)
                     max_item_type_count = max_item_type_count - 1
                 end
                 attempted_cliff_names[entity.name] = true
-            elseif not deconstruction_attempted and entity.is_registered_for_deconstruction(force) then
-                deconstruction_attempted = true
-                if not self.moving_to_destination then
-                    self:set_job_destination(entity.position)
-				end
-            end
+			end
+        elseif not deconstruction_attempted and entity.is_registered_for_deconstruction(force) then
+            deconstruction_attempted = true
+            if not self.moving_to_destination then
+                self:set_job_destination(entity.position)
+			end
         end
     end
 
@@ -2845,5 +2845,6 @@ function(cmd)
         game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
     end
 end)
+
 
 return lib

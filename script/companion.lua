@@ -10,24 +10,18 @@ local inner_margin = 2   -- offset when stopping on a job
 local def_speed = 2.5    -- non challenge mode companion speed
 local cmax = 12          -- max number of companions you can have simultaneously when fully upgraded in challenge mode; recommended min of 6
 local lib = {}           -- predeclaration
-local debug_mode = true  -- enables debugging functionality (no gameplay difference)
-storage.speed_fx_params = storage.speed_fx_params or { -- for the speed flame
-  min_scale   = 0.70,  -- smallest the flame gets
-  max_scale   = 1.60,  -- hard cap
-  sensitivity = 1.20,  -- bigger == reacts more at low speeds
-  gain        = 0.60   -- bigger == overall larger
-}
+local debug_mode = false -- enables debugging functionality (no gameplay difference)
 
 --[[ TABLE OF CONTENTS ]]--
 --[[
-Line   24 Challenge mode stat control
-Line  126 Initialization
-Line  331 Utilities
-Line 1256 Core Logic
-Line 1676 Secondary Utilities
-Line 2502 Migrations
-Line 2701 Commands and Remotes
-Last updated 3.0.37]]
+Line   31 Challenge mode stat control
+Line  133 Initialization
+Line  338 Utilities
+Line 1345 Core Logic
+Line 1765 Secondary Utilities
+Line 2545 Migrations
+Line 2754 Commands and Remotes
+Last updated 3.1.0]]
 --------------------------- Challenge Mode Stat Control ---------------------------
 
 local function set_defaults()
@@ -534,16 +528,19 @@ end
 
 
 function Companion:clear_speed_fx()
-    if self.speed_fx then
-        self.speed_fx.destroy()
+    local fx = self.speed_fx
+    if fx and fx.valid then
+        fx.destroy()
     end
     self.speed_fx = nil
 end
 
 function Companion:get_speed_fx()
-    if self.speed_fx then
-        return self.speed_fx
+    local fx = self.speed_fx
+    if fx and fx.valid then
+        return fx
     end
+    -- cached handle is missing or dead ? recreate
     self.speed_fx = rendering.draw_animation{
         animation    = "companion-speed-flame",
         target       = self.entity,
@@ -581,7 +578,7 @@ function Companion:set_speed(speed)
             sticker.active = true
         end
         local fx = self:get_speed_fx()
-        if fx then
+        if fx and fx.valid then
             fx.time_to_live = 11
 
             local S_MIN  = 0.25   -- size at near-zero speeds
@@ -962,7 +959,7 @@ function Companion:return_to_player()
         self.entity.follow_target = self.player.character
         return
     end
-    self.entity.autopilot_destination = self.player.physical_positions
+    self.entity.autopilot_destination = self.player.physical_position
 end
 
 function Companion:take_item(item, target)
@@ -1233,7 +1230,7 @@ end
 function Companion:teleport(position, surface)
     self:clear_robots()
     self:clear_speed_sticker()
-
+    self:clear_speed_fx()  
     self.entity.teleport(position, surface)
     self:set_active()
 end
@@ -1424,71 +1421,108 @@ function Companion:update()
 end
 
 function Companion:try_to_find_work(search_area)
-
-    local force = self.entity.force
-    local entities = self.entity.surface.find_entities_filtered{area = search_area, force = force}
+    local force   = self.entity.force
+    local surface = self.entity.surface
 
     local current_items = self:get_inventory().get_contents()
-    local can_take_from_player = self:distance(self.player.physical_position) <= follow_range and self.entity.surface == self.player.physical_surface
+    local can_take_from_player = self:distance(self.player.physical_position) <= follow_range
+        and self.entity.surface == self.player.physical_surface
 
-    local has_or_can_take = function(item)
-        if self:get_inventory().get_item_count{ name = item.name, quality = (item.quality or "normal") } >= (item.count or 1) then
+    local function has_or_can_take(item)
+        if self:get_inventory().get_item_count{
+            name    = item.name,
+            quality = (item.quality or "normal")
+        } >= (item.count or 1) then
             return true
         end
-        if not can_take_from_player then return end
-        return self:find_and_take_from_player{ name = item.name, count = (item.count or 1), quality = (item.quality or "normal") }
+        if not can_take_from_player then return false end
+        return self:find_and_take_from_player{
+            name    = item.name,
+            count   = (item.count or 1),
+            quality = (item.quality or "normal")
+        }
     end
-    
-    local attempted_ghost_names = {}
+
+    local attempted_ghost_names   = {}
     local attempted_upgrade_names = {}
-    local attempted_proxy_items = {}
-    local repair_attempted = false
+    local attempted_proxy_items   = {}
+    local repair_attempted        = false
     local deconstruction_attempted = false
-    local max_item_type_count = 10
+    local max_item_type_count     = 10
 
-    for k, entity in pairs (entities) do
-
-        if max_item_type_count <= 0 then
-            return
+    local function pick(pos)
+        if not self.moving_to_destination then
+            self:set_job_destination(pos)
+            return true
         end
+    end
 
+    local function bots_claimed(entity, kind)
+        if kind == "construct" then
+            return entity.is_registered_for_construction and entity.is_registered_for_construction() or false
+        elseif kind == "upgrade" then
+            return entity.is_registered_for_upgrade and entity.is_registered_for_upgrade() or false
+        elseif kind == "repair" then
+            return entity.is_registered_for_repair and entity.is_registered_for_repair() or false
+        elseif kind == "decon" then
+            return entity.is_registered_for_deconstruction and entity.is_registered_for_deconstruction(force) or false
+        end
+        return false
+    end
+
+    -- deconstruction (ignore if bots already claimed)
+    local decon = surface.find_entities_filtered{
+        area                = search_area,
+        force               = force,
+        to_be_deconstructed = true
+    }
+    for _, entity in pairs(decon) do
         if not entity.valid then break end
-
-        local entity_type = entity.type
-        local quality = "normal"
-
-        if entity.quality then
-            quality = entity.quality.name
-        end
-
-        if not deconstruction_attempted and entity.is_registered_for_deconstruction(force) then
-            if entity.type ~= "vehicle" or entity.speed < 0.4 then
+        if (entity.type ~= "vehicle") or (entity.speed and entity.speed < 0.4) then
+            if not bots_claimed(entity, "decon") then
                 deconstruction_attempted = true
-                if not self.moving_to_destination then
-                    self:set_job_destination(entity.position)
-                end
+                if pick(entity.position) then return end
             end
         end
+    end
 
+    -- ghosts (ignore if bots already claimed)
+    local ghosts = surface.find_entities_filtered{
+        area  = search_area,
+        force = force,
+        type  = {"entity-ghost", "tile-ghost"}
+    }
+    for _, entity in pairs(ghosts) do
+        if (max_item_type_count or 0) <= 0 then return end
+        if not entity.valid then break end
+
+        if bots_claimed(entity, "construct") then goto continue_ghost end
+
+        local entity_type = entity.type
+        local quality     = (entity.quality and entity.quality.name) or "normal"
 
         if ghost_types[entity_type] then
             local ghost_name = entity.ghost_name
             if not attempted_ghost_names[ghost_name] then
-                local item = entity.ghost_prototype.items_to_place_this[1]
-                item.quality = quality
-                if has_or_can_take(item) then
-                    if not self.moving_to_destination then
-                        self:set_job_destination(entity.position)
+                local proto = entity.ghost_prototype
+                local items = proto and proto.items_to_place_this
+                local item  = items and items[1]
+                if item then
+                    item.quality = quality
+                    if has_or_can_take(item) then
+                        if pick(entity.position) then return end
+                        max_item_type_count = max_item_type_count - 1
+                        attempted_ghost_names[ghost_name] = 1
+                    else
+                        attempted_ghost_names[ghost_name] = 0
                     end
-                    max_item_type_count = max_item_type_count - 1
-                    attempted_ghost_names[ghost_name] = 1
                 else
                     attempted_ghost_names[ghost_name] = 0
                 end
             end
             if item_request_types[entity_type] and attempted_ghost_names[ghost_name] == 1 then
                 local items = entity.item_requests
-                for _, item in pairs (items) do
+                for _, item in pairs(items) do
                     if not attempted_proxy_items[item.name] then
                         attempted_proxy_items[item.name] = true
                         if has_or_can_take(item) then
@@ -1498,82 +1532,106 @@ function Companion:try_to_find_work(search_area)
                 end
             end
         end
+        ::continue_ghost::
+    end
 
-        if entity.is_registered_for_upgrade() then
-            local upgrade_target = entity.get_upgrade_target()
-            if not attempted_upgrade_names[upgrade_target.name] then
-                if upgrade_target.name == entity.name then
-                    if not self.moving_to_destination then
-                        self:set_job_destination(entity.position)
-                    end
-                else
-                    local item = upgrade_target.items_to_place_this[1]
+    -- upgrades (ignore if bots already claimed)
+    local upgrades = surface.find_entities_filtered{
+        area           = search_area,
+        force          = force,
+        to_be_upgraded = true
+    }
+    for _, entity in pairs(upgrades) do
+        if not entity.valid then break end
+        if bots_claimed(entity, "upgrade") then goto continue_upgrade end
+
+        local quality        = (entity.quality and entity.quality.name) or "normal"
+        local upgrade_target = entity.get_upgrade_target()
+        if upgrade_target and not attempted_upgrade_names[upgrade_target.name] then
+            if upgrade_target.name == entity.name then
+                if pick(entity.position) then return end
+            else
+                local items = upgrade_target.items_to_place_this
+                local item  = items and items[1]
+                if item then
                     item.quality = quality
                     if has_or_can_take(item) then
-                        if not self.moving_to_destination then
-                            self:set_job_destination(entity.position)
-                        end
+                        if pick(entity.position) then return end
                         max_item_type_count = max_item_type_count - 1
                     end
                 end
-                attempted_upgrade_names[upgrade_target.name] = true
             end
+            attempted_upgrade_names[upgrade_target.name] = true
         end
+        ::continue_upgrade::
+    end
 
-        if not repair_attempted and entity.is_registered_for_repair() then
-            repair_attempted = true
-            for name, bool in pairs (get_repair_tools()) do
-                if has_or_can_take({name = name, count = 1}) then
-                    if not self.moving_to_destination then
-                        self:set_job_destination(entity.position)
-                    end
-                    break
-                end
-            end
-        end
-
-        if entity_type == "item-request-proxy" then
-            local items = entity.item_requests
-            for _, item in pairs (items) do
-                if not attempted_proxy_items[item.name] then
-                    attempted_proxy_items[item.name] = true
-                    if has_or_can_take(item) then
-                        if not self.moving_to_destination then
-                            self:set_job_destination(entity.position)
-                        end
-                        max_item_type_count = max_item_type_count - 1
+    -- repair (ignore if bots already claimed)
+    if not repair_attempted and not self.moving_to_destination then
+        local candidates = surface.find_entities_filtered{
+            area  = search_area,
+            force = force,
+            limit = 200
+        }
+        for _, entity in pairs(candidates) do
+            local needs_repair = (entity.get_health_ratio and ((entity.get_health_ratio() or 1) < 1)) or false
+            if needs_repair and not bots_claimed(entity, "repair") then
+                for name in pairs(get_repair_tools()) do
+                    if has_or_can_take({name = name, count = 1}) then
+                        if pick(entity.position) then return end
+                        break
                     end
                 end
+                break
             end
         end
     end
 
+    -- item request proxies (ignore if bots already claimed)
+    local proxies = surface.find_entities_filtered{
+        area  = search_area,
+        force = force,
+        type  = "item-request-proxy"
+    }
+    for _, entity in pairs(proxies) do
+        if not entity.valid then break end
+        if bots_claimed(entity, "construct") then goto continue_proxy end
+        local items = entity.item_requests
+        for _, item in pairs(items) do
+            if not attempted_proxy_items[item.name] then
+                attempted_proxy_items[item.name] = true
+                if has_or_can_take(item) then
+                    if pick(entity.position) then return end
+                    max_item_type_count = max_item_type_count - 1
+                end
+            end
+        end
+        ::continue_proxy::
+    end
+
+    -- neutral cliffs (ignore if bots already claimed)
     local attempted_cliff_names = {}
-    local neutral_entities = self.entity.surface.find_entities_filtered{area = search_area, force = "neutral", to_be_deconstructed = true}
-    for k, entity in pairs (neutral_entities) do
+    local neutral_entities = surface.find_entities_filtered{
+        area                = search_area,
+        force               = "neutral",
+        to_be_deconstructed = true
+    }
+    for _, entity in pairs(neutral_entities) do
         if not entity.valid then break end
         if entity.type == "cliff" then
-            if not attempted_cliff_names[entity.name] and entity.is_registered_for_deconstruction(force) then
+            local claimed = bots_claimed(entity, "decon")
+            if not attempted_cliff_names[entity.name] and not claimed then
                 local item_name = entity.prototype.cliff_explosive_prototype
                 if has_or_can_take({name = item_name, count = 1}) then
-                    if not self.moving_to_destination then
-                        self:set_job_destination(entity.position)
-                    end
+                    if pick(entity.position) then return end
                     max_item_type_count = max_item_type_count - 1
                 end
                 attempted_cliff_names[entity.name] = true
-            elseif not deconstruction_attempted and entity.is_registered_for_deconstruction(force) then
-                deconstruction_attempted = true
-                if not self.moving_to_destination then
-                    self:set_job_destination(entity.position)
-				end
             end
+        elseif not deconstruction_attempted and not claimed then
+            deconstruction_attempted = true
+            if pick(entity.position) then return end
         end
-    end
-
-    if self.moving_to_destination then
-        --We have a job.
-        return
     end
 end
 

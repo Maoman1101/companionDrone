@@ -1,25 +1,33 @@
-local util = require("util") -- I don' t think I actually use anything from this currently but I might one day
-local challenge_mode = settings.startup["set-challenge-mode"].value -- is challenge mode enabled?
+local utils = require("utils") -- I don' t think I actually use anything from this currently but I might one day
+local challenge_mode = settings.startup["set-challenge-mode"].value -- is the old challenge mode option enabled?
+local mode = settings.startup["set-mode"].value -- Are we in normal (0), challenge (1), forgiving (2), or combined (3) mode?
 local abandon_job_distance = 128 -- distance that we ignore jobs and follow the player instead
-local follow_range = 12 -- how close we stick to the player
-local sticker_life = 1  -- modifies flight speed (sorta, it's complicated)
-local dist_bonus = 2    -- offset when setting job destination
-local staging_step = 2  -- offset when stepping towards a job
-local inner_margin = 2  -- offset when stopping on a job
-local cmax = 12         -- max number of companions you can have simultaneously when fully upgraded in challenge mode; recommended min of 6
-local lib = {}          -- predeclaration
-local debug_on = false  -- enables debugging functionality (no gameplay difference)
+local follow_range = 12  -- how close we stick to the player
+local sticker_life = 11  -- modifies flight speed (sorta, it's complicated)
+local dist_bonus = 2     -- offset when setting job destination
+local staging_step = 2   -- offset when stepping towards a job
+local inner_margin = 2   -- offset when stopping on a job
+local def_speed = 2.5    -- non challenge mode companion speed
+local cmax = 12          -- max number of companions you can have simultaneously when fully upgraded in challenge mode; recommended min of 6
+local lib = {}           -- predeclaration
+local debug_mode = true  -- enables debugging functionality (no gameplay difference)
+storage.speed_fx_params = storage.speed_fx_params or { -- for the speed flame
+  min_scale   = 0.70,  -- smallest the flame gets
+  max_scale   = 1.60,  -- hard cap
+  sensitivity = 1.20,  -- bigger == reacts more at low speeds
+  gain        = 0.60   -- bigger == overall larger
+}
 
 --[[ TABLE OF CONTENTS ]]--
 --[[
-Line   23 Challenge mode stat control
-Line  124 Initialization
-Line  330 Utilities
-Line 1246 Core Logic
-Line 1674 Secondary Utilities
-Line 2512 Migrations
-Line 2712 Commands and Remotes
-Last updated 3.0.28]]
+Line   24 Challenge mode stat control
+Line  126 Initialization
+Line  331 Utilities
+Line 1256 Core Logic
+Line 1676 Secondary Utilities
+Line 2502 Migrations
+Line 2701 Commands and Remotes
+Last updated 3.0.37]]
 --------------------------- Challenge Mode Stat Control ---------------------------
 
 local function set_defaults()
@@ -28,13 +36,13 @@ local function set_defaults()
     storage.fuel_multiplier = 1
     storage.companion_speed_factor = storage.companion_speed_factor or 1.0
     storage.player_speed_factor = storage.player_speed_factor or {} 
-    if challenge_mode then  -- shitty values to start with in challenge mode
+    if mode == 1 or mode == 3 then -- shitty values to start with in challenge mode
         storage.base_speed                   = 0.5
         storage.attack_count                 = 0
         storage.max_distance                 = 24
         storage.max_companions               = 1
     else -- moderately good (but not best) values for non challenge mode players
-        storage.base_speed                   = 2.5
+        storage.base_speed                   = def_speed
         storage.attack_count                 = 8
         storage.max_distance                 = 100
         storage.max_companions               = 2
@@ -42,9 +50,10 @@ local function set_defaults()
 end
 
 local function ensure_companion_upgrades()
-    if not challenge_mode then return end
     if not storage then storage = {} end
-    if not storage.companion_upgrades then
+    if not storage.companion_upgrades then storage.companion_upgrades = {} end
+    if mode ~= 1 and mode ~= 3 then return end -- only use this table in challenge or combined mode
+    if not storage.companion_upgrades or not next(storage.companion_upgrades) then
         storage.companion_upgrades = { -- if you change any of these, remember to change the defaults up there ^ too
             ["electronics"]             = {{stat="base_speed",     value=1,    phrase="I can move a little easier now."}},
             ["automobilism"]            = {{stat="base_speed",     value=1.75, phrase="Engine boost activated."}},
@@ -59,12 +68,11 @@ local function ensure_companion_upgrades()
             --How many laser particles it spawns with each attack; each particle always does the same damage
             
             ["logistics"]               = {{stat="max_distance",   value=48,   phrase="This will let me plan ahead better."}},
-            --["optics"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}}, -- 2.0 renamed this to lamp
-			["lamp"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
+            ["lamp"]                    = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
             ["radar"]                   = {{stat="max_distance",   value=128,  phrase="Radar has extended my range to max."}},
-            --How far the companion looks for construction jobs; top value should not exceed abandon_job_distance
+            --How far the companion looks for construction jobs; highest value should not exceed abandon_job_distance
             
-            ["processing-unit"]         = {{stat="max_companions", value=math.ceil(cmax / 5),  phrase="Your suit can handle a friend now!"}},
+            ["processing-unit"]         = {{stat="max_companions", value=math.ceil(cmax/5),  phrase="Your suit can handle a friend now!"}},
             ["power-armor-mk2"]         = {{stat="max_companions", value=cmax, phrase="Your suit's fully upgraded: time to roll out the squad."}},
             --How many companions you can have simultaneously; change "cmax" at start of file, not this.
 
@@ -208,7 +216,7 @@ local function set_companion_stats(player)
         end
     end
     storage.base_speed    = best_values.base_speed or storage.base_speed
-    storage.damage        = best_values.damage or storage.damage
+    storage.attack_count  = best_values.attack_count or storage.attack_count
     storage.max_distance  = best_values.max_distance or storage.max_distance
     storage.number_drones = best_values.number_drones or storage.number_drones
 end
@@ -248,7 +256,7 @@ local rotate_vector = function(vector,    orientation)
 end
 
 local get_player_speed = function(player, boost)
-    local boost = boost or 1.0 
+    local boost = boost or 10.0 
     if player.vehicle then
         return math.abs(player.vehicle.speed) * boost
     end
@@ -275,7 +283,7 @@ Companion.new = function(entity, player)
         script_data.player_data[player.index] = player_data
         player.set_shortcut_available("companion-construction-toggle", true)
         player.set_shortcut_available("companion-attack-toggle", true)
-        if challenge_mode then
+        if mode == 1 or mode == 3 then
             player.set_shortcut_toggled("companion-attack-toggle", false)
         end
     end
@@ -284,11 +292,11 @@ Companion.new = function(entity, player)
     for _ in pairs(player_data.companions) do count = count + 1 end
     if count >= storage.max_companions then
         if count == 1 then
-			self:say("Your in-suit controller can't handle another friend just now.")
+			player.print("Your in-suit controller can't handle another friend just now.")
 		elseif count == cmax then
-			self:say("Your in-suit controller can only handle " .. cmax .. " of us at once!")
+			player.print("Your in-suit controller can only handle " .. cmax .. " of us at once!")
 		else
-			self:say("Your in-suit controller can't handle more than " .. storage.max_companions .. " companions for now.")
+			player.print("Your in-suit controller can't handle more than " .. storage.max_companions .. " companions for now.")
 		end
         if entity and entity.valid then
 			local inserted = player.insert{name = entity.name, count = 1}
@@ -353,7 +361,7 @@ local adjust_follow_behavior = function(player)
     if count == 1 then length = 2 end
     local dong = 0.75 + (0.5 / count)
     local shift = {x = 0, y =0}
-    local speed = get_player_speed(player)
+    local speed = get_player_speed(player, 1.0)
     if player.vehicle then
         local orientation = player.vehicle.orientation
         dong = dong + orientation
@@ -380,7 +388,7 @@ local adjust_follow_behavior = function(player)
                 companion.entity.autopilot_destination = {position.x + follow_offset.x, position.y + follow_offset.y}
             end
         end
-        -- idiotic solution but if it works ... is it really idiotic?
+        -- stupid solution but if it works ... is it really stupid?
         if follow_offset and follow_offset.x and follow_offset.y and follow_offset.x <= 10000 and follow_offset.y <= 10000 then
             companion.entity.follow_offset = follow_offset
         end
@@ -410,6 +418,7 @@ function Companion:_inside_job_zone(margin)
 end
 
 local function eff_base()
+    if mode ~=1 and mode ~=3 then return def_speed end
     if not storage.companion_speed_factor then
         storage.companion_speed_factor = 1.0
     end
@@ -508,22 +517,40 @@ function Companion:get_speed_sticker()
     if self.speed_sticker and self.speed_sticker.valid then
         return self.speed_sticker
     end
-    self.speed_sticker = self.entity.surface.create_entity
-    {
-        name = "speed-sticker",
+    self.speed_sticker = self.entity.surface.create_entity{
+        name   = "speed-sticker",
         target = self.entity,
-        force = self.entity.force,
-        position = self.entity.position
+        force  = self.entity.force,
+        position = self.entity.position,
     }
-    self.speed_sticker.active = true
+    if self.speed_sticker then self.speed_sticker.active = true end
     return self.speed_sticker
 end
 
 function Companion:get_distance_boost(position)
-
     local distance = self:distance(position)
-    return (distance / 50)
+    return (distance / 10)
+end
 
+
+function Companion:clear_speed_fx()
+    if self.speed_fx then
+        self.speed_fx.destroy()
+    end
+    self.speed_fx = nil
+end
+
+function Companion:get_speed_fx()
+    if self.speed_fx then
+        return self.speed_fx
+    end
+    self.speed_fx = rendering.draw_animation{
+        animation    = "companion-speed-flame",
+        target       = self.entity,
+        surface      = self.entity.surface,
+        render_layer = "object",
+    }
+    return self.speed_fx
 end
 
 function Companion:set_speed(speed)
@@ -531,19 +558,47 @@ function Companion:set_speed(speed)
     self.speed = speed
     self._last_speed_factor = factor
     if not storage.base_speed then storage.base_speed = 10 end
-    local denom = get_speed_boost(self.entity.burner)
-    local ratio = (speed * eff_base() * denom)
-    if ratio > 1 then
+
+    -- Measure actual movement since last call (tiles/tick)
+    local pos = self.entity.position
+    local tick = game.tick
+    local v = 0
+    if self._last_pos and self._last_pos_tick then
+        local dt = tick - self._last_pos_tick
+        if dt > 0 then
+            local dx = pos.x - self._last_pos.x
+            local dy = pos.y - self._last_pos.y
+            v = math.sqrt(dx*dx + dy*dy) / dt
+        end
+    end
+    self._last_pos = pos
+    self._last_pos_tick = tick
+
+    if v > 0.015 then
         local sticker = self:get_speed_sticker()
-        local ttl = 1 + (((sticker_life / 10) * ratio) * 1000)
-        if ttl > math.huge then -- prevents mystery integer overflow errors
-            ttl = 100000000
+        if sticker and sticker.valid then
+            sticker.time_to_live = 11
+            sticker.active = true
         end
-        sticker.time_to_live = ttl
+        local fx = self:get_speed_fx()
+        if fx then
+            fx.time_to_live = 11
+
+            local S_MIN  = 0.25   -- size at near-zero speeds
+            local S_MAX  = 1.33   -- size cap at high speeds
+            local V_FULL = 0.11   -- v where scale ~~ 1.0 (˜5 tiles/s)
+            local SENS   = 10.0   -- speed of size rise over velocity
+
+            local GAIN = (1.0 - S_MIN) / math.log(1 + SENS * V_FULL)
+            local s = S_MIN + GAIN * math.log(1 + SENS * v)
+            if s > S_MAX then s = S_MAX end
+
+            fx.x_scale = s
+            fx.y_scale = s
+        end
     else
-        if self.speed_sticker and self.speed_sticker.valid then
-            self.speed_sticker.time_to_live = 1
-        end
+        self:clear_speed_sticker()
+        self:clear_speed_fx()
     end
 end
 
@@ -705,7 +760,7 @@ end
 function Companion:search_for_nearby_work()
     if not self:player_wants_construction() or not self.can_construct then return end
     if self.entity.surface ~= self.player.physical_surface then return end
-	local radius = storage.max_distance
+	local radius = storage.max_distance or 100
 	local origin = self.entity.position
 	local area = {{origin.x - radius, origin.y - radius}, {origin.x + radius, origin.y + radius}}
 	self:try_to_find_work(area)
@@ -733,21 +788,21 @@ function Companion:is_busy()
 end
 
 function Companion:say(text)
-	if not settings.startup["companion-voice-lines"].value then return end -- don't speak if the player disabled the setting
+	if not settings.startup["companion-voice-lines"].value then return end
     local tick_value = 0
     local live_value = 0
-    if debug_on then 
+    if debug_mode then -- when debugging, text is short lived and rapid firing
         tick_value = 1 
         live_value = 30 
-    else 
+    else -- otherwise text lasts 4 seconds and can only fire twice per second
         tick_value = 30 
         live_value = 240 
     end
-    if (game.tick - (self.last_spoken_tick or 0)) <= tick_value then return end -- don't speak more than twice per second unless debugging
+    if (game.tick - (self.last_spoken_tick or 0)) <= tick_value then return end 
     self.last_spoken_tick = game.tick
     self.player.create_local_flying_text{
         position = {x = self.entity.position.x, y = self.entity.position.y - 2.5},
-        text = text or "??",
+        text = text or "Error",
         color = {r = 0.4, g = 0.8, b = 1},
 		time_to_live = live_value,
 		speed = 0.5
@@ -901,13 +956,13 @@ function Companion:return_to_player()
         return
     end
 
-    self:set_speed(math.max(eff_base() * 0.8, get_player_speed(self.player, 0.8)))
+    self:set_speed(math.max(eff_base() * 0.8, get_player_speed(self.player, 1.0)))
 
     if self.player.character then
         self.entity.follow_target = self.player.character
         return
     end
-    self.entity.autopilot_destination = self.player.physical_position
+    self.entity.autopilot_destination = self.player.physical_positions
 end
 
 function Companion:take_item(item, target)
@@ -1126,7 +1181,7 @@ function get_inventory(entity)
 end
 
 function Companion:find_and_take_from_player(item)
-    local count = self.player.get_item_count(item.name)
+    local count = self.player.get_item_count{ name = item.name, quality = (item.quality or "normal") }
     if count >= item.count then
         if self:take_item(item, self.player) then
             return true
@@ -1138,7 +1193,7 @@ function Companion:find_and_take_from_player(item)
         local train = vehicle.train
         if not train then
             local target_inventory = get_inventory(vehicle)
-            local count = target_inventory.get_item_count{ name = item, quality = quality }
+            local count = target_inventory.get_item_count{ name = item.name, quality = (item.quality or "normal") }
             if count >= item.count then
                 if self:take_item(item, vehicle) then
                     return true
@@ -1251,9 +1306,45 @@ local get_free_companion_for_construction = function(player_data)
     end
 end
 
+function Companion:escape_danger(threat_pos)
+    if self:distance(self.player.physical_position) > abandon_job_distance then
+        self.current_job_target = nil
+        self.moving_to_destination = nil
+        self.entity.autopilot_destination = nil
+        self:clear_robots()
+        self:return_to_player()
+        return
+    end
+
+    if not threat_pos or not threat_pos.x then
+        self.current_job_target = nil
+        self.moving_to_destination = nil
+        self.entity.autopilot_destination = nil
+        self:return_to_player()
+        return
+    end
+
+    local self_pos = self.entity.position
+    local dx = self_pos.x - threat_pos.x
+    local dy = self_pos.y - threat_pos.y
+    local d  = math.sqrt(dx*dx + dy*dy)
+    if d < 0.001 then d = 0.001 end
+
+    local retreat = 8
+    local dest = { x = self_pos.x + (dx/d) * retreat, y = self_pos.y + (dy/d) * retreat }
+
+    self.current_job_target = nil
+    self.moving_to_destination = true
+    self.entity.follow_target = nil
+    self.entity.autopilot_destination = dest
+
+    self:set_active()
+end
+
+
 --------------------------- Core Logic ---------------------------
 
-function Companion:update()
+function Companion:update() 
     if self.flagged_for_equipment_changed then
         self:check_equipment()
     end
@@ -1307,7 +1398,7 @@ function Companion:update()
     and next(self.robots)
     and not self.moving_to_destination
     then -- ensures we complete all jobs in range before moving on to the next location
-        local radius = storage.max_distance
+        local radius = storage.max_distance or 100
         local origin = self.entity.position
         local area = {{origin.x - radius, origin.y - radius}, {origin.x + radius, origin.y + radius}}
         local hold = self.moving_to_destination
@@ -1341,15 +1432,11 @@ function Companion:try_to_find_work(search_area)
     local can_take_from_player = self:distance(self.player.physical_position) <= follow_range and self.entity.surface == self.player.physical_surface
 
     local has_or_can_take = function(item)
-        local have = current_items[item.name] or 0
-        if have >= item.count then return true end
+        if self:get_inventory().get_item_count{ name = item.name, quality = (item.quality or "normal") } >= (item.count or 1) then
+            return true
+        end
         if not can_take_from_player then return end
-        local mult = storage.construction_pull_multiplier or 10
-        local want = item.count * mult
-        local need = math.max(0, want - have)
-        if need == 0 then return true end
-        local req = {name = item.name, count = need, quality = item.quality}
-        return self:find_and_take_from_player(req)
+        return self:find_and_take_from_player{ name = item.name, count = (item.count or 1), quality = (item.quality or "normal") }
     end
     
     local attempted_ghost_names = {}
@@ -1384,7 +1471,7 @@ function Companion:try_to_find_work(search_area)
         end
 
 
-        if ghost_types[entity_type] and entity.is_registered_for_construction()    then
+        if ghost_types[entity_type] then
             local ghost_name = entity.ghost_name
             if not attempted_ghost_names[ghost_name] then
                 local item = entity.ghost_prototype.items_to_place_this[1]
@@ -1445,7 +1532,7 @@ function Companion:try_to_find_work(search_area)
             end
         end
 
-        if entity_type == "item-request-proxy" and entity.is_registered_for_construction() then
+        if entity_type == "item-request-proxy" then
             local items = entity.item_requests
             for _, item in pairs (items) do
                 if not attempted_proxy_items[item.name] then
@@ -2326,28 +2413,17 @@ local function reset_companions_for_player(player)
         return
     end
 
-    local function remove_from_active(unit_number)
-        local mod = unit_number % (storage.companion_update_interval or 5)
-        local list = script_data.active_companions and script_data.active_companions[mod]
-        if list then
-            list[unit_number] = nil
-            if not next(list) then script_data.active_companions[mod] = nil end
-        end
-    end
-    
     local count = 0
     for unit_number in pairs(player_data.companions) do
         local companion = script_data.companions[unit_number]
         if companion then
-            -- Thorough reset of companion state
+            -- reset state
             companion:clear_robots()
-            companion.moving_to_destination = nil
             companion.is_busy_for_construction = false
             companion.is_in_combat = false
             companion.job_done_tick = nil
             companion.job_done_announced = false
             companion.out_of_energy = nil
-            companion.moving_to_destination = nil
             companion.moving_to_destination = nil
             companion.next_idle_line_tick = nil
             companion.test_idle_tick = nil
@@ -2359,75 +2435,38 @@ local function reset_companions_for_player(player)
             set_companion_stats(player)
             adjust_follow_behavior(player)
             companion:debug_report_state("RESET")
+
+            local grid = companion.entity.grid
+            apply_researched_equipment_upgrades(player, grid)
+            converge_equipment_to_researched(player, grid)
+
             count = count + 1
         end
     end
-    game.print({"", "Reset ", count, " companions."})
 
-    local killed = 0
-    for unit_number in pairs(player_data.companions) do
-        local c = script_data.companions and script_data.companions[unit_number]
-        if c then
-            if c.try_to_shove_inventory then pcall(function() c:try_to_shove_inventory() end) end
-            if c.clear_robots then pcall(function() c:clear_robots() end) end
-            if c.clear_speed_sticker then pcall(function() c:clear_speed_sticker() end) end
-            remove_from_active(unit_number)
-            if c.entity and c.entity.valid then
-                c.entity.destroy()
-                killed = killed + 1
-            end
-            script_data.companions[unit_number] = nil
-            player_data.companions[unit_number] = nil
-        end
-    end
-
-    script_data.specific_job_search_queue[player.index] = nil
-    script_data.player_data[player.index] = nil
-    player.set_shortcut_available("companion-attack-toggle", false)
-    player.set_shortcut_available("companion-construction-toggle", false)
-    player.set_shortcut_toggled("companion-attack-toggle", false)
-    player.set_shortcut_toggled("companion-construction-toggle", false)
-    set_defaults()
-    ensure_companion_upgrades()
-    
-    local surface = player.physical_surface
-    local pos = player.physical_position
-    set_companion_stats(player)
-    local entity = surface.create_entity{
-        name = "companion",
-        position = pos,
-        force = player.force
-    }
-    entity.insert("wood")
-    entity.color = player.color
-    local grid = entity.grid
-    grid.put{name = "companion-reactor-equipment"}
-    if not challenge_mode then
-        grid.put{name = "companion-defense-equipment"}
-        grid.put{name = "companion-defense-equipment"}
-        grid.put{name = "companion-roboport-mk2"}
-        grid.put{name = "companion-shield-mk2"}
-        player.set_shortcut_available("companion-attack-toggle", true)
-        player.set_shortcut_toggled("companion-attack-toggle", true)
-    else
-        grid.put{name = "companion-defense-equipment"}
-        grid.put{name = "companion-roboport-mk0"}
-        grid.put{name = "companion-shield-mk0"}
-        player.set_shortcut_available("companion-attack-toggle", true)
-        player.set_shortcut_toggled("companion-attack-toggle", false)
-    end
-    player.set_shortcut_available("companion-construction-toggle", true)
-    player.set_shortcut_toggled("companion-construction-toggle", true)
-    apply_researched_equipment_upgrades(player, grid)
-    converge_equipment_to_researched(player, grid)
-
-    Companion.new(entity, player)
-    game.print({"", "Reset and respawned companion (removed ", killed, ")."})
+    game.print({"", "Reset ", count, " companions for ", player.name, "."})
 end
+
+local function on_entity_damaged(event)
+    local ent = event.entity
+    if not (ent and ent.valid) then return end
+    if ent.name ~= "companion" then return end
+
+    local c = get_companion(ent.unit_number)
+    if not c then return end                                     -- uses your helper
+    if c:player_wants_attack() then return end                    -- respect attack toggle
+    if c.entity.surface ~= c.player.physical_surface then return end
+
+    if c._last_escape_tick and (game.tick - c._last_escape_tick) < 30 then return end
+    c._last_escape_tick = game.tick
+
+    local src = (event.cause and event.cause.valid) and event.cause.position or nil
+    c:escape_danger(src)                                          -- flee from cause, or to player if nil
+end
+
 
 local function on_research_finished(event)
     if not challenge_mode or not event.research then return end
-
     local tech = event.research.name
     local entries = storage.companion_upgrades and storage.companion_upgrades[tech]
     if not entries or not entries[1] then return end
@@ -2493,6 +2532,7 @@ lib.events =
     [defines.events.on_player_deconstructed_area]     = on_player_deconstructed_area,
     [defines.events.on_pre_build]                     = on_pre_build,
 	[defines.events.on_research_finished]             = on_research_finished,
+    [defines.events.on_entity_damaged]                = on_entity_damaged,
 }
 
 lib.on_load = function()
@@ -2639,13 +2679,20 @@ local migrations = {
     end,
 }
 
+local function check_challenge_mode()
+    if challenge_mode and (mode == 0 or mode == 2) then
+        game.print("[WARNING] IMPORTANT MESSAGE FOR COMPANION DRONE CHALLENGE MODE USERS:")
+        game.print("[WARNING] The 'challenge mode' setting will be removed soon, replaced by the 'set mode' setting.")
+        game.print("[WARNING] You MUST switch 'set mode' to mode 1 or 3 OR uncheck 'challenge mode' or this mod will CRASH in the near future.")
+    end
+end
+
 script.on_event(defines.events.on_gui_click, on_gui_click)
 
 script.on_configuration_changed(function(e)
     bind_storage()
     storage.companion_update_interval = settings.startup["set-update-interval"].value or 5
-	local p = game.players[1] or next(game.connected_players)
-	if p then set_companion_stats(p) end
+    reseed_defaults()
     for player_index, player_data in pairs (script_data.player_data) do
 
         if player_data.last_search_offset then
@@ -2663,7 +2710,7 @@ script.on_configuration_changed(function(e)
 
             if not player.is_shortcut_available("companion-attack-toggle") then
                 player.set_shortcut_available("companion-attack-toggle", true)
-                if challenge_mode then
+                if mode == 1 or mode == 3 then
                     player.set_shortcut_toggled("companion-attack-toggle", false)
                 else
                     player.set_shortcut_toggled("companion-attack-toggle", true)
@@ -2699,8 +2746,10 @@ script.on_configuration_changed(function(e)
 
     reschedule_companions()
 	migrate_companions()
+    check_challenge_mode()
 	on_config_changed(e, migrations)
 end)
+
 
 ----------------------------------- Commands and Remotes ------------------------------------
 
@@ -2779,8 +2828,7 @@ commands.add_command("reschedule_companions", "If they get stuck or something", 
 
 commands.add_command("reset_companions",
 "Fully reset your companion(s) to brand-new state.",
-function(cmd)
-    if not debug_on then return end 
+function(cmd) 
     local player = game.get_player(cmd.player_index)
     if player then reset_companions_for_player(player) end
 end)
@@ -2789,7 +2837,7 @@ end)
 commands.add_command("debug_companion", 
 "Debug companion state", 
 function(cmd)
-    if not debug_on then return end 
+    if not debug_mode then game.print("You cannot use this command while Debug mode is disabled") return end 
     local player = game.get_player(cmd.player_index)
     if not player then return end
     local player_data = script_data.player_data[player.index]
@@ -2806,7 +2854,7 @@ end)
 commands.add_command("swap_equipment", 
 "Takes any input equipment name and replaces it with output name. Takes two arguments.", 
 function(cmd)
-    if not debug_on then return end
+    if not debug_mode then game.print("You cannot use this command while Debug mode is disabled") return end
 	local errmsg = "Usage: /swap_equipment <old-equipment-literal-name> <new-equipment-literal-name>"
     local player = game.get_player(cmd.player_index)
     local companion = script_data.companions[next(script_data.player_data[player.index].companions)]
@@ -2828,7 +2876,7 @@ end)
 commands.add_command("companion_reseed_defaults",
 "Refreshes companion stats in storage table.",
 function(cmd)
-    if not debug_on then return end
+    if not debug_mode then game.print("You cannot use this command while Debug mode is disabled") return end
     local player = game.get_player(cmd.player_index)
     if player then reseed_defaults(player) end
 end)
@@ -2836,7 +2884,7 @@ end)
 commands.add_command("companion_speed_factor",
 "Set companion speed multiplier (>0). Decimals between 0 and 1 will slow the drone.",
 function(cmd)
-    if not debug_on then return end
+    if not debug_mode then game.print("You cannot use this command while Debug mode is disabled") return end
     local v = tonumber(cmd.parameter)
     if v and v > 0 then
         remote.call("companion_speed", "set_factor", v)
@@ -2846,6 +2894,5 @@ function(cmd)
         game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
     end
 end)
-
 
 return lib

@@ -59,7 +59,8 @@ local function ensure_companion_upgrades()
             --How many laser particles it spawns with each attack; each particle always does the same damage
             
             ["logistics"]               = {{stat="max_distance",   value=48,   phrase="This will let me plan ahead better."}},
-            ["optics"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
+            --["optics"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}}, -- 2.0 renamed this to lamp
+			["lamp"]                  = {{stat="max_distance",   value=80,   phrase="I can see more clearly now."}},
             ["radar"]                   = {{stat="max_distance",   value=128,  phrase="Radar has extended my range to max."}},
             --How far the companion looks for construction jobs; top value should not exceed abandon_job_distance
             
@@ -85,7 +86,7 @@ local function ensure_companion_upgrades()
             }},
 
             -- Companion Roboport upgrade tree
-            ["logistics-science-pack"] = {{
+            ["logistic-science-pack"] = {{
                 stat="companion-roboport-mk0", 
                 value="companion-roboport-mk1", 
                 phrase="Roboport partially repaired."
@@ -2845,5 +2846,6 @@ function(cmd)
         game.print({"", "[Companion] current speed factor = ", cur, " (usage: /companion_speed_factor <number>)"})
     end
 end)
+
 
 return lib

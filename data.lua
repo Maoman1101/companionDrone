@@ -1,5 +1,7 @@
 local util                 = require("__core__/lualib/util")
 local attach_beam_graphics = require("data/beam_sprites")
+local mode = settings.startup["set-mode"].value
+local recipes = {}
 
 local bot = util.copy(data.raw["construction-robot"]["construction-robot"])
 bot.name = "companion-construction-robot"
@@ -59,7 +61,7 @@ local bot_item =
 {
   type = "item",
   name = "companion-construction-robot",
-  icon = "__companion-drones-mjlfix__/drone-icon.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
   icon_size = 200,
   subgroup = "logistic-network",
   order = "a[robot]-b[construction-robot]",
@@ -105,7 +107,7 @@ local equipment =
   spawn_minimum = "0W",
 
   robot_limit = 1000,
-  construction_radius = 42,
+  construction_radius = 100,
   draw_construction_radius_visualization = false,
   spawn_and_station_height = 1,
   spawn_and_station_shadow_height_offset = 0,
@@ -149,7 +151,7 @@ local equipment_item =
   icons =
   {
     {
-      icon = "__companion-drones-mjlfix__/drone-icon.png",
+      icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -221,7 +223,7 @@ local drone =
   collision_box = {{-1 * scale, -1 * scale}, {1 * scale, 1 * scale}},
   selection_box = {{-1 * scale, -1 * scale}, {1 * scale, 1 * scale}},
   drawing_box = {{-3 * scale, -4 * scale}, {3 * scale, 2 * scale}},
-  icon = "__companion-drones-mjlfix__/drone-icon.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
   icon_size = 200,
   mined_sound = {filename = "__core__/sound/deconstruct-large.ogg",volume = 0.8},
   open_sound = { filename = "__base__/sound/spidertron/spidertron-door-open.ogg", volume= 0.35 },
@@ -320,13 +322,13 @@ local drone =
         name = "train-smoke",
         deviation = {0.3, 0.3},
         frequency = 100,
-        position = {-1, 0},
+        position = {0, 0},
         starting_frame = 0,
         starting_frame_deviation = 60,
-        height = 2,
-        height_deviation = 0.5,
+        height = 0,
+        height_deviation = 0.8,
         starting_vertical_speed = -0.2,
-        starting_vertical_speed_deviation = 0.1
+        starting_vertical_speed_deviation = 0.2
       }
     }
   },
@@ -350,7 +352,7 @@ local drone =
 
   minimap_representation =
   {
-    filename = "__companion-drones-mjlfix__/drone-map.png",
+    filename = "__companion-drones-mjlfix__/sprites/drone-map.png",
     flags = {"icon"},
     size = {128, 128},
     scale = 0.25
@@ -420,34 +422,13 @@ for x, field in pairs(leg.graphics_set) do
   leg.graphics_set[x] = nil
 end
 
-local layers = drone.graphics_set.base_animation.layers
-for k, layer in pairs (layers) do
-  layer.repeat_count = 8
-end
---[[
-table.insert(layers, 1,
-{ -- Added by Shockrift
-  filename = "__companion-drones__/10-jet-flame.png", -- todo: get sprite
-  priority = "medium",
-  blend_mode = "additive",
-  draw_as_glow = true,
-  width = 172,
-  height = 256,
-  frame_count = 8,
-  line_length = 8,
-  animation_speed = 0.5,
-  scale = 1.13/8,
-  shift = util.by_pixel(-0.5, 20),
-  direction_count = 1
-})
-]]
 local drone_item =
 {
   type = "item-with-entity-data",
   name = "companion",
-  icon = "__companion-drones-mjlfix__/drone-icon.png",
-  icon_tintable = "__companion-drones-mjlfix__/drone-icon-tintable.png",
-  icon_tintable_mask = "__companion-drones-mjlfix__/drone-icon-mask.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
+  icon_tintable = "__companion-drones-mjlfix__/sprites/drone-icon-tintable.png",
+  icon_tintable_mask = "__companion-drones-mjlfix__/sprites/drone-icon-mask.png",
   icon_size = 200,
   subgroup = "companion",
 
@@ -526,7 +507,7 @@ local gun_item =
   icons =
   {
     {
-      icon = "__companion-drones-mjlfix__/drone-icon.png",
+      icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -546,7 +527,7 @@ local plasma_projectile =
 {
   type = "projectile",
   name = "companion-projectile",
-  icon = "__companion-drones-mjlfix__/drone-icon.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
   icon_size = 200,
   flags = {"not-on-map"},
   subgroup = "explosions",
@@ -632,7 +613,7 @@ local shield_item =
   icons =
   {
     {
-      icon = "__companion-drones-mjlfix__/drone-icon.png",
+      icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -705,7 +686,7 @@ local companion_shield_item_mk0 = {
     localised_name = {"item-name.companion-shield-mk0"},
     icons = {
         {
-            icon = "__companion-drones-mjlfix__/drone-icon.png",
+            icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
             icon_size = 200
         },
         {
@@ -831,7 +812,7 @@ local companion_roboport_item_mk0 = {
     localised_name = {"item-name.companion-roboport-mk0"},
     icons = {
         {
-            icon = "__companion-drones-mjlfix__/drone-icon.png",
+            icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
             icon_size = 200
         },
         {
@@ -896,7 +877,7 @@ local battery_item =
 {
   type = "item",
   name = "companion-battery-equipment",
-  icon = "__companion-drones-mjlfix__/drone-icon.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
   icon_size = 200,
   place_as_equipment_result = "companion-battery-equipment",
   subgroup = "companion",
@@ -949,7 +930,7 @@ local reactor_item =
   icons =
   {
     {
-      icon = "__companion-drones-mjlfix__/drone-icon.png",
+      icon = "__companion-drones-mjlfix__/sprites/drone-icon.png",
       icon_size = 200
     },
     {
@@ -965,111 +946,213 @@ local reactor_item =
   stack_size = 20
 }
 
-local recipes =
-{
-  {
-    type = "recipe",
-    name = "companion",
-    enabled = true,
-    energy_required = 120,
-    ingredients =
+if mode == 0 or mode == 1 then -- normal or challenge mode
+    recipes =
     {
-      {type="item", name="processing-unit", amount=100},
-      {type="item", name="low-density-structure", amount=50},
-      {type="item", name="engine-unit", amount=50},
-      {type="item", name="flying-robot-frame", amount=4},
-      {type="item", name="spidertron", amount=1}
-    },
-    results =
+      {
+        type = "recipe",
+        name = "companion",
+        enabled = true,
+        energy_required = 120,
+        ingredients =
+        {
+          {type="item", name="processing-unit", amount=100},
+          {type="item", name="low-density-structure", amount=50},
+          {type="item", name="engine-unit", amount=50},
+          {type="item", name="flying-robot-frame", amount=4},
+          {type="item", name="spidertron", amount=1}
+        },
+        results =
+        {
+          {type="item", name="companion", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-reactor-equipment",
+        enabled = true,
+        energy_required = 60,
+        ingredients =
+        {
+          {type="item", name="processing-unit", amount=100},
+          {type="item", name="steel-plate", amount=10},
+          {type="item", name="uranium-fuel-cell", amount=1}
+        },
+        results =
+        {
+          {type="item", name="companion-reactor-equipment", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-shield-equipment",
+        enabled = true,
+        energy_required = 30,
+        ingredients =
+        {
+          {type="item", name="energy-shield-equipment", amount=10},
+          {type="item", name="processing-unit", amount=10}
+        },
+        results =
+        {
+          {type="item", name="companion-shield-equipment", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-roboport-equipment",
+        enabled = true,
+        energy_required = 30,
+        ingredients =
+        {
+          {type="item", name="processing-unit", amount=50},
+          {type="item", name="personal-roboport-equipment", amount=4},
+          {type="item", name="plastic-bar", amount=20}
+        },
+        results =
+        {
+          {type="item", name="companion-roboport-equipment", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-defense-equipment",
+        enabled = true,
+        energy_required = 30,
+        ingredients =
+        {
+          {type="item", name="processing-unit", amount=15},
+          {type="item", name="low-density-structure", amount=10},
+          {type="item", name="personal-laser-defense-equipment", amount=4}
+        },
+        results =
+        {
+          {type="item", name="companion-defense-equipment", amount=1}
+        }
+      }
+    }    
+elseif mode == 2 or mode == 3 then -- forgiving or combined mode
+    recipes =
     {
-      {type="item", name="companion", amount=1}
+      {
+        type = "recipe",
+        name = "companion",
+        enabled = true,
+        energy_required = 120,
+        ingredients =
+        {
+          {type="item", name="electronic-circuit", amount=200},
+          {type="item", name="copper-plate", amount=50},
+          {type="item", name="iron-plate", amount=100},
+          {type="item", name="raw-fish", amount=1}
+        },
+        results =
+        {
+          {type="item", name="companion", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-reactor-equipment",
+        enabled = true,
+        energy_required = 60,
+        ingredients =
+        {
+          {type="item", name="electronic-circuit", amount=100},
+          {type="item", name="iron-plate", amount=100},
+          {type="item", name="copper-plate", amount=100},
+          {type="item", name="stone-brick", amount=50},
+          {type="item", name="coal", amount=50}
+        },
+        results =
+        {
+          {type="item", name="companion-reactor-equipment", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-shield-equipment",
+        enabled = true,
+        energy_required = 30,
+        ingredients =
+        {
+          {type="item", name="iron-plate", amount=20},
+          {type="item", name="electronic-circuit", amount=50}
+        },
+        results =
+        {
+          {type="item", name="companion-shield-equipment", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-roboport-equipment",
+        enabled = true,
+        energy_required = 30,
+        ingredients =
+        {
+          {type="item", name="electronic-circuit", amount=50},
+          {type="item", name="iron-plate", amount=10},
+          {type="item", name="copper-plate", amount=10}
+        },
+        results =
+        {
+          {type="item", name="companion-roboport-equipment", amount=1}
+        }
+      },
+      {
+        type = "recipe",
+        name = "companion-defense-equipment",
+        enabled = true,
+        energy_required = 30,
+        ingredients =
+        {
+          {type="item", name="electronic-circuit", amount=50},
+          {type="item", name="copper-plate", amount=20}
+        },
+        results =
+        {
+          {type="item", name="companion-defense-equipment", amount=1}
+        }
+      }
     }
-  },
-  {
-    type = "recipe",
-    name = "companion-reactor-equipment",
-    enabled = true,
-    energy_required = 60,
-    ingredients =
-    {
-      {type="item", name="processing-unit", amount=100},
-	  {type="item", name="steel-plate", amount=10},
-      {type="item", name="uranium-fuel-cell", amount=1}
-    },
-    results =
-    {
-      {type="item", name="companion-reactor-equipment", amount=1}
-    }
-  },
-  {
-    type = "recipe",
-    name = "companion-shield-equipment",
-    enabled = true,
-    energy_required = 30,
-    ingredients =
-    {
-      {type="item", name="energy-shield-equipment", amount=10},
-      {type="item", name="processing-unit", amount=10}
-    },
-    results =
-    {
-      {type="item", name="companion-shield-equipment", amount=1}
-    }
-  },
-  {
-    type = "recipe",
-    name = "companion-roboport-equipment",
-    enabled = true,
-    energy_required = 30,
-    ingredients =
-    {
-      {type="item", name="processing-unit", amount=50},
-      {type="item", name="personal-roboport-equipment", amount=4},
-      {type="item", name="plastic-bar", amount=20}
-    },
-    results =
-    {
-      {type="item", name="companion-roboport-equipment", amount=1}
-    }
-  },
-  {
-    type = "recipe",
-    name = "companion-defense-equipment",
-    enabled = true,
-    energy_required = 30,
-    ingredients =
-    {
-      {type="item", name="processing-unit", amount=15},
-      {type="item", name="low-density-structure", amount=10},
-      {type="item", name="personal-laser-defense-equipment", amount=4}
-    },
-    results =
-    {
-      {type="item", name="companion-defense-equipment", amount=1}
-    }
-  }
-}
+end
 
 data:extend(recipes)
 
 local speed_sticker =
 {
-  type = "sticker",
-  name = "speed-sticker",
-  flags = {"not-on-map"},
-  animation = util.empty_sprite(),
-  duration_in_ticks = 100,
-  target_movement_modifier_from = 1,
-  target_movement_modifier_to = 1,
-  vehicle_speed_modifier_from = 10,
-  vehicle_speed_modifier_to = 1,
-  vehicle_friction_modifier_from = 1,
-  vehicle_friction_modifier_to = 1,
+    type = "sticker",
+    name = "speed-sticker",
+    flags = {"not-on-map"},
+    animation = util.empty_sprite(),
+    duration_in_ticks = 100,
+    target_movement_modifier_from = 1,
+    target_movement_modifier_to   = 1,
+    vehicle_speed_modifier_from   = 10,
+    vehicle_speed_modifier_to     = 1,
+    vehicle_friction_modifier_from = 1,
+    vehicle_friction_modifier_to   = 1,
+}
+
+local speed_flame =
+{
+    type = "animation",
+    name = "companion-speed-flame",
+    filename        = "__companion-drones-mjlfix__/sprites/10-jet-flame.png",
+    width           = 172,
+    height          = 256,
+    frame_count     = 8,
+    line_length     = 8,
+    animation_speed = 0.5,
+    scale           = 1.13 / 8,
+    shift           = util.by_pixel(-0.5, 20),
+    render_layer    = "air-object",
 }
 
 local attack_icon =
 {
-  filename = "__companion-drones-mjlfix__/drone-attack-shortcut.png",
+  filename = "__companion-drones-mjlfix__/sprites/drone-attack-shortcut.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1078,7 +1161,7 @@ local attack_icon =
 
 local attack_icon_disabled =
 {
-  filename = "__companion-drones-mjlfix__/drone-attack-shortcut-disabled.png",
+  filename = "__companion-drones-mjlfix__/sprites/drone-attack-shortcut-disabled.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1093,9 +1176,9 @@ local attack_shortcut =
   order = "a[companion-drones]",
   action = "lua",
   style = "default",
-  icon = "__companion-drones-mjlfix__/drone-attack-shortcut.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-attack-shortcut.png",
   icon_size = 200,
-  small_icon = "__companion-drones-mjlfix__/drone-attack-shortcut.png",
+  small_icon = "__companion-drones-mjlfix__/sprites/drone-attack-shortcut.png",
   small_icon_size = 200,
   toggleable = true
 }
@@ -1103,7 +1186,7 @@ local attack_shortcut =
 
 local construct_icon =
 {
-  filename = "__companion-drones-mjlfix__/drone-construction-shortcut.png",
+  filename = "__companion-drones-mjlfix__/sprites/drone-construction-shortcut.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1112,7 +1195,7 @@ local construct_icon =
 
 local construct_icon_disabled =
 {
-  filename = "__companion-drones-mjlfix__/drone-construction-shortcut-disabled.png",
+  filename = "__companion-drones-mjlfix__/sprites/drone-construction-shortcut-disabled.png",
   priority = "extra-high-no-scale",
   size = 200,
   scale = 1,
@@ -1127,9 +1210,9 @@ local construct_shortcut =
   order = "a[companion-drones]",
   action = "lua",
   style = "default",
-  icon = "__companion-drones-mjlfix__/drone-construction-shortcut.png",
+  icon = "__companion-drones-mjlfix__/sprites/drone-construction-shortcut.png",
   icon_size = 200,
-  small_icon = "__companion-drones-mjlfix__/drone-construction-shortcut.png",
+  small_icon = "__companion-drones-mjlfix__/sprites/drone-construction-shortcut.png",
   small_icon_size = 200,
   toggleable = true
 }
@@ -1160,6 +1243,7 @@ data:extend
   reactor_item,
   category,
   speed_sticker,
+  speed_flame,
   attack_shortcut,
   construct_shortcut, 
   companion_shield_mk0,

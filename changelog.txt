@@ -1,6 +1,99 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.1.0
+Date: 2025-09-01
+  Features:
+    - New "forgiving mode" intended for massively complex modpacks such as Bob's, Angels, Py, etc.
+    - "Challenge Mode" and "Forgiving Mode" are both combined into one setting: "set mode."
+      This setting takes a number 0 1 or 2 and sets the companion's behavior accordingly.
+      See the setting description for more details.
+      This was so you can't enable both simultaneously.
+  Minor Features:
+    - Added about 40 new idle dialogue options.
+  Graphics:
+    - Updated shadow sprite to be slightly blurry to give a better sense of distance
+    - Finally got the rocket engine sprite working 
+  Debug:
+    - Hid debug commands behind a warning message if debug mode is not active
+  Changes:
+    - Reduced default chatter average interval to 5 minutes (was 10)
+    - New migration functions for the transfer of "challenge mode" to "set mode"
+    - Removed "mjlfix" from mod name, don't know why it was even in there.
+  Bugfixes:
+    - Corrected smoke appearing in a weird place relative to the drone
+    - Possible fix for "aritmetic on radius" crash in multiplayer
+  
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.39
+Date: 2025-08-24
+  Bugfixes:
+    - Fixed drones getting deleted and leaving you with only one on mod config change
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.38
+Date: 2025-08-24
+  Bugfixes:
+    - Previous update was accidentally the wrong version
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.37
+Date: 2025-08-24
+  Debug:
+    - Updated documentation
+  Bugfixes:
+    - Fixed update_interval crash
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.36
+Date: 2025-08-23
+  Bugfixes:
+    - Now quality buildings work too
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.35
+Date: 2025-08-23
+  Bugfixes:
+    - Partially fixed companion can't build certain items bug (quality buildings still don't work)
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.34
+Date: 2025-08-23
+  Bugfixes:
+    - Attack damage used the wrong variable in one function, breaking companion attacks
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.33
+Date: 2025-08-23
+  Debug:
+    - Forgot to turn off Debug mode
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.32
+Date: 2025-08-23
+  Bugfixes:
+    - Fixed the upgrade table, attempt 2.
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.31
+Date: 2025-08-23
+  Bugfixes:
+    - The fix from 3.0.29 broke the upgrade table, that should be fixed now
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.30
+Date: 2025-08-23
+  Bugfixes:
+    - Possibly fixed on_configuration_changed crash
+
+---------------------------------------------------------------------------------------------------
+Version: 3.0.29
+Date: 2025-08-23
+  Bugfixes:
+    - Fixed on_player_created crash
+
+---------------------------------------------------------------------------------------------------
 Version: 3.0.28
-Date: 2025-08-20
+Date: 2025-08-23
   Balance:
     - Adjusted challenge mode upgrade values, especially for speed and damage.
   Debug:

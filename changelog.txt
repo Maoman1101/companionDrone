@@ -17,10 +17,10 @@ Date: 2025-09-01
   Changes:
     - Reduced default chatter average interval to 5 minutes (was 10)
     - New migration functions for the transfer of "challenge mode" to "set mode"
-    - Removed "mjlfix" from mod name, don't know why it was even in there.
   Bugfixes:
     - Corrected smoke appearing in a weird place relative to the drone
-    - Possible fix for "aritmetic on radius" crash in multiplayer
+    - Possible fix for "arithmetic on radius" crash in multiplayer
+    - Fixed severe lag spiking when drone builds at the same time as many construction bots
   
 
 ---------------------------------------------------------------------------------------------------

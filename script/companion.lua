@@ -583,7 +583,7 @@ function Companion:set_speed(speed)
 
             local S_MIN  = 0.25   -- size at near-zero speeds
             local S_MAX  = 1.33   -- size cap at high speeds
-            local V_FULL = 0.11   -- v where scale ~~ 1.0 (˜5 tiles/s)
+            local V_FULL = 0.11   -- v where scale ~~ 1.0 (Â˜5 tiles/s)
             local SENS   = 10.0   -- speed of size rise over velocity
 
             local GAIN = (1.0 - S_MIN) / math.log(1 + SENS * V_FULL)
@@ -921,7 +921,7 @@ end
 function Companion:return_to_player()
 
     if not self.player.valid then return end
-    if self.is_busy_for_construction then return end
+    if self.is_busy_for_construction and not self.is_getting_full then return end
     if self.player.physical_surface ~= self.entity.surface then
         return
     end

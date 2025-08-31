@@ -4,7 +4,7 @@ data:extend({
         name = "set-challenge-mode",
         setting_type = "startup",
         default_value = false,
-        order = "a",
+        order = "c",
         localised_description = {"settings.set-challenge-mode"}
     },
 	{
@@ -12,7 +12,7 @@ data:extend({
 		name = "companion-voice-lines",
 		setting_type = "startup",
 		default_value = true,
-		order = "c",
+		order = "b",
         localised_description = {"settings.companion-voice-lines"}
 	},
     {
@@ -22,7 +22,7 @@ data:extend({
         default_value = 5,
         minimum_value = 1,
         maximum_value = 1200,
-        order = "b",
+        order = "d",
         localised_description = {"settings.set-update-interval"}
     },
 	{
@@ -42,4 +42,14 @@ data:extend({
 		default_value = false,
 		localised_description = {"settings.set-fuel-preference"}
 	},
+    {
+        type = "int-setting",
+        name = "set-mode",
+        setting_type = "startup",
+		default_value = 0,
+		minimum_value = 0,
+		maximum_value = 3,
+		order = "a",
+        localised_description = {"settings.set-mode"}
+    },
 })

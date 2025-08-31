@@ -11,12 +11,6 @@ local def_speed = 2.5    -- non challenge mode companion speed
 local cmax = 12          -- max number of companions you can have simultaneously when fully upgraded in challenge mode; recommended min of 6
 local lib = {}           -- predeclaration
 local debug_mode = false -- enables debugging functionality (no gameplay difference)
-storage.speed_fx_params = storage.speed_fx_params or { -- for the speed flame
-  min_scale   = 0.70,  -- smallest the flame gets
-  max_scale   = 1.60,  -- hard cap
-  sensitivity = 1.20,  -- bigger == reacts more at low speeds
-  gain        = 0.60   -- bigger == overall larger
-}
 
 --[[ TABLE OF CONTENTS ]]--
 --[[

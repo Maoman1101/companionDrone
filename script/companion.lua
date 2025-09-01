@@ -7,7 +7,7 @@ local sticker_life = 11  -- modifies flight speed (sorta, it's complicated)
 local dist_bonus = 2     -- offset when setting job destination
 local staging_step = 2   -- offset when stepping towards a job
 local inner_margin = 2   -- offset when stopping on a job
-local def_speed = 2.5    -- non challenge mode companion speed
+local def_speed = 5.0    -- non challenge mode companion speed
 local cmax = 12          -- max number of companions you can have simultaneously when fully upgraded in challenge mode; recommended min of 6
 local lib = {}           -- predeclaration
 local debug_mode = false -- enables debugging functionality (no gameplay difference)
@@ -39,7 +39,7 @@ local function set_defaults()
         storage.base_speed                   = def_speed
         storage.attack_count                 = 8
         storage.max_distance                 = 100
-        storage.max_companions               = 2
+        storage.max_companions               = 3
     end
 end
 
@@ -540,7 +540,6 @@ function Companion:get_speed_fx()
     if fx and fx.valid then
         return fx
     end
-    -- cached handle is missing or dead ? recreate
     self.speed_fx = rendering.draw_animation{
         animation    = "companion-speed-flame",
         target       = self.entity,
@@ -556,7 +555,6 @@ function Companion:set_speed(speed)
     self._last_speed_factor = factor
     if not storage.base_speed then storage.base_speed = 10 end
 
-    -- Measure actual movement since last call (tiles/tick)
     local pos = self.entity.position
     local tick = game.tick
     local v = 0
@@ -581,10 +579,10 @@ function Companion:set_speed(speed)
         if fx and fx.valid then
             fx.time_to_live = 11
 
-            local S_MIN  = 0.25   -- size at near-zero speeds
-            local S_MAX  = 1.33   -- size cap at high speeds
-            local V_FULL = 0.11   -- v where scale ~~ 1.0 (˜5 tiles/s)
-            local SENS   = 10.0   -- speed of size rise over velocity
+            local S_MIN  = 0.15
+            local S_MAX  = 1.0
+            local V_FULL = 0.11
+            local SENS   = 100.0
 
             local GAIN = (1.0 - S_MIN) / math.log(1 + SENS * V_FULL)
             local s = S_MIN + GAIN * math.log(1 + SENS * v)
@@ -626,7 +624,6 @@ function Companion:check_equipment()
 
     local grid = self:get_grid()
 
-    -- Check for roboport equipment first
     self.can_construct = false
     for k, equipment in pairs (grid.equipment) do
         if equipment.type == "roboport-equipment" then
@@ -640,7 +637,6 @@ function Companion:check_equipment()
 		end
     end
 
-    -- Only set robot stack if we have a roboport
     if self.can_construct then
         local network = self.entity.logistic_network
         local max_robots = (network and network.robot_limit) or 100
@@ -1458,19 +1454,29 @@ function Companion:try_to_find_work(search_area)
     end
 
     local function bots_claimed(entity, kind)
-        if kind == "construct" then
-            return entity.is_registered_for_construction and entity.is_registered_for_construction() or false
-        elseif kind == "upgrade" then
-            return entity.is_registered_for_upgrade and entity.is_registered_for_upgrade() or false
-        elseif kind == "repair" then
-            return entity.is_registered_for_repair and entity.is_registered_for_repair() or false
-        elseif kind == "decon" then
-            return entity.is_registered_for_deconstruction and entity.is_registered_for_deconstruction(force) or false
+        local claimed =
+            (kind == "construct"   and entity.is_registered_for_construction and entity.is_registered_for_construction())
+         or (kind == "upgrade"     and entity.is_registered_for_upgrade      and entity.is_registered_for_upgrade())
+         or (kind == "repair"      and entity.is_registered_for_repair       and entity.is_registered_for_repair())
+         or (kind == "decon"       and entity.is_registered_for_deconstruction and entity.is_registered_for_deconstruction(force))
+         or false
+
+        if not claimed then
+            return false
         end
-        return false
+
+        local net = surface.find_logistic_network_by_position(entity.position, force)
+        if not net then
+            return false
+        end
+
+        if (net.available_construction_robots or 0) <= 0 then
+            return false
+        end
+
+        return true
     end
 
-    -- deconstruction (ignore if bots already claimed)
     local decon = surface.find_entities_filtered{
         area                = search_area,
         force               = force,
@@ -1486,7 +1492,6 @@ function Companion:try_to_find_work(search_area)
         end
     end
 
-    -- ghosts (ignore if bots already claimed)
     local ghosts = surface.find_entities_filtered{
         area  = search_area,
         force = force,
@@ -1535,7 +1540,6 @@ function Companion:try_to_find_work(search_area)
         ::continue_ghost::
     end
 
-    -- upgrades (ignore if bots already claimed)
     local upgrades = surface.find_entities_filtered{
         area           = search_area,
         force          = force,
@@ -1566,7 +1570,6 @@ function Companion:try_to_find_work(search_area)
         ::continue_upgrade::
     end
 
-    -- repair (ignore if bots already claimed)
     if not repair_attempted and not self.moving_to_destination then
         local candidates = surface.find_entities_filtered{
             area  = search_area,
@@ -1587,7 +1590,6 @@ function Companion:try_to_find_work(search_area)
         end
     end
 
-    -- item request proxies (ignore if bots already claimed)
     local proxies = surface.find_entities_filtered{
         area  = search_area,
         force = force,
@@ -1609,7 +1611,6 @@ function Companion:try_to_find_work(search_area)
         ::continue_proxy::
     end
 
-    -- neutral cliffs (ignore if bots already claimed)
     local attempted_cliff_names = {}
     local neutral_entities = surface.find_entities_filtered{
         area                = search_area,
@@ -2333,7 +2334,7 @@ local on_player_created = function(event)
 	entity.color = player.color
 	local grid = entity.grid
 	grid.put{name = "companion-reactor-equipment"}
-	if not challenge_mode then 
+	if not challenge_mode and mode ~= 1 and mode ~= 3 then 
 		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-defense-equipment"}
 		grid.put{name = "companion-roboport-mk2"}
@@ -2524,7 +2525,7 @@ end
 
 
 local function on_research_finished(event)
-    if not challenge_mode or not event.research then return end
+    if (not challenge_mode and mode ~= 1 and mode ~= 3) or not event.research then return end
     local tech = event.research.name
     local entries = storage.companion_upgrades and storage.companion_upgrades[tech]
     if not entries or not entries[1] then return end
@@ -2592,13 +2593,6 @@ lib.events =
 	[defines.events.on_research_finished]             = on_research_finished,
     [defines.events.on_entity_damaged]                = on_entity_damaged,
 }
-
-lib.on_load = function()
-    script_data = storage.companion or script_data
-    for unit_number, companion in pairs(script_data.companions) do
-        setmetatable(companion, Companion.metatable)
-    end
-end
 
 ---------------------------- Migrations ----------------------------------
 
@@ -2768,7 +2762,7 @@ script.on_configuration_changed(function(e)
 
             if not player.is_shortcut_available("companion-attack-toggle") then
                 player.set_shortcut_available("companion-attack-toggle", true)
-                if mode == 1 or mode == 3 then
+                if mode == 1 or mode == 3 or challenge_mode then
                     player.set_shortcut_toggled("companion-attack-toggle", false)
                 else
                     player.set_shortcut_toggled("companion-attack-toggle", true)
@@ -2807,6 +2801,13 @@ script.on_configuration_changed(function(e)
     check_challenge_mode()
 	on_config_changed(e, migrations)
 end)
+
+lib.on_load = function()
+    script_data = storage.companion or script_data
+    for unit_number, companion in pairs(script_data.companions) do
+        setmetatable(companion, Companion.metatable)
+    end
+end
 
 
 ----------------------------------- Commands and Remotes ------------------------------------
@@ -2937,6 +2938,13 @@ function(cmd)
     if not debug_mode then game.print("You cannot use this command while Debug mode is disabled") return end
     local player = game.get_player(cmd.player_index)
     if player then reseed_defaults(player) end
+end)
+
+commands.add_command("companion_check_mode",
+"",
+function(cmd)
+    game.print(tostring(challenge_mode))
+    game.print(tostring(mode))
 end)
 
 commands.add_command("companion_speed_factor",

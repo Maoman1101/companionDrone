@@ -1,12 +1,17 @@
 ---------------------------------------------------------------------------------------------------
-Version: 3.1.0
+Version: 3.1.1
 Date: 2025-09-01
+  Bugfixes:
+    - Fixed drone not constructing when personal roboport is disabled
+
+---------------------------------------------------------------------------------------------------
+Version: 3.1.0
+Date: 2025-08-31
   Features:
     - New "forgiving mode" intended for massively complex modpacks such as Bob's, Angels, Py, etc.
     - "Challenge Mode" and "Forgiving Mode" are both combined into one setting: "set mode."
-      This setting takes a number 0 1 or 2 and sets the companion's behavior accordingly.
+      This setting takes a number between 0 and 3 and sets the companion's behavior accordingly.
       See the setting description for more details.
-      This was so you can't enable both simultaneously.
   Minor Features:
     - Added about 40 new idle dialogue options.
   Graphics:
@@ -21,7 +26,8 @@ Date: 2025-09-01
     - Corrected smoke appearing in a weird place relative to the drone
     - Possible fix for "arithmetic on radius" crash in multiplayer
     - Fixed severe lag spiking when drone builds at the same time as many construction bots
-  
+  Modding:
+    - Added Github integration
 
 ---------------------------------------------------------------------------------------------------
 Version: 3.0.39

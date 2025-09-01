@@ -1,3 +1,5 @@
+The most up-to-date description can always be found here: https://mods.factorio.com/mod/companion-drones-mjlfix
+
 #Companion Drones in 2.0 and Space Age for YOU.
 
 *Overview:* 
